@@ -1,0 +1,88 @@
+.editor-wrapper {
+  width: 100%;
+  height: 100%;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.editor-wrapper .cm-editor {
+  height: 100%;
+  outline: none;
+}
+
+.editor-wrapper .cm-scroller {
+  overflow: auto;
+  font-family: inherit;
+}
+
+.editor-wrapper .cm-content {
+  padding: 12px;
+  min-height: 100%;
+}
+
+.editor-wrapper .cm-line {
+  padding: 2px 0;
+}
+
+/* Markdown 语法高亮样式 */
+.editor-wrapper .cm-heading {
+  font-weight: bold;
+  color: #1a73e8;
+}
+
+.editor-wrapper .cm-strong {
+  font-weight: bold;
+  color: #0d47a1;
+}
+
+.editor-wrapper .cm-emphasis {
+  font-style: italic;
+  color: #5f6368;
+}
+
+.editor-wrapper .cm-link {
+  color: #1a73e8;
+  text-decoration: underline;
+}
+
+.editor-wrapper .cm-monospace {
+  font-family: 'Consolas', 'Monaco', monospace;
+  background-color: #f1f3f4;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.editor-wrapper .cm-list {
+  color: #5f6368;
+}
+
+.editor-wrapper .cm-quote {
+  color: #5f6368;
+  font-style: italic;
+}
+
+/* 光标和选区样式 */
+.editor-wrapper .cm-cursor {
+  border-left-color: #1a73e8;
+}
+
+.editor-wrapper .cm-selectionBackground {
+  background-color: #c2e7ff !important;
+}
+
+/* 焦点样式 */
+.editor-wrapper .cm-focused {
+  outline: none;
+}
+
+/* 行号样式 */
+.editor-wrapper .cm-gutters {
+  background-color: #f8f9fa;
+  border-right: 1px solid #e0e0e0;
+  color: #5f6368;
+}
+
+.editor-wrapper .cm-activeLineGutter {
+  background-color: #e8f0fe;
+}

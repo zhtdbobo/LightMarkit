@@ -1,0 +1,146 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  color: #0f0f0f;
+  background-color: #f6f6f6;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.app-header {
+  background-color: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 16px 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.app-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a73e8;
+  margin: 0;
+}
+
+.app-header .subtitle {
+  font-size: 14px;
+  color: #5f6368;
+  margin: 4px 0 0 0;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.app-main .editor-wrapper {
+  flex: 1;
+  height: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f6f6f6;
+    background-color: #1e1e1e;
+  }
+
+  .app-header {
+    background-color: #252526;
+    border-bottom-color: #3e3e42;
+  }
+
+  .app-header h1 {
+    color: #4fc3f7;
+  }
+
+  .app-header .subtitle {
+    color: #9e9e9e;
+  }
+
+  .app-main {
+    background-color: #1e1e1e;
+  }
+
+  .editor-wrapper .cm-editor {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+  }
+
+  .editor-wrapper .cm-gutters {
+    background-color: #252526;
+    border-right-color: #3e3e42;
+    color: #858585;
+  }
+
+  .editor-wrapper .cm-activeLineGutter {
+    background-color: #2a2d2e;
+  }
+
+  .editor-wrapper .cm-activeLine {
+    background-color: #2a2d2e;
+  }
+
+  .editor-wrapper .cm-selectionBackground {
+    background-color: #264f78 !important;
+  }
+
+  .editor-wrapper .cm-cursor {
+    border-left-color: #4fc3f7;
+  }
+
+  .editor-wrapper .cm-heading {
+    color: #4fc3f7;
+  }
+
+  .editor-wrapper .cm-strong {
+    color: #569cd6;
+  }
+
+  .editor-wrapper .cm-emphasis {
+    color: #9cdcfe;
+  }
+
+  .editor-wrapper .cm-link {
+    color: #4fc3f7;
+  }
+
+  .editor-wrapper .cm-monospace {
+    background-color: #2d2d30;
+    color: #d7ba7d;
+  }
+
+  .editor-wrapper .cm-list {
+    color: #9e9e9e;
+  }
+
+  .editor-wrapper .cm-quote {
+    color: #9e9e9e;
+  }
+}
