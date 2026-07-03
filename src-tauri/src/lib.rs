@@ -6,7 +6,7 @@ use tauri::{
     Manager, State,
 };
 use serde::{Deserialize, Serialize};
-use headless_chrome::{Browser, LaunchOptions, protocol::cdp::Page};
+use headless_chrome::{Browser, LaunchOptions};
 
 // 文件状态管理
 #[derive(Default)]
@@ -476,27 +476,8 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     // 生成 PDF
-    let pdf_options = Page::PrintToPdfOptions {
-        landscape: Some(false),
-        display_header_footer: Some(false),
-        print_background: Some(true),
-        scale: Some(1.0),
-        paper_width: Some(8.27), // A4 width in inches
-        paper_height: Some(11.7), // A4 height in inches
-        margin_top: Some(0.4),
-        margin_bottom: Some(0.4),
-        margin_left: Some(0.4),
-        margin_right: Some(0.4),
-        page_ranges: None,
-        ignore_invalid_page_ranges: Some(false),
-        header_template: None,
-        footer_template: None,
-        prefer_css_page_size: Some(false),
-        transfer_mode: None,
-    };
-
     let pdf_data = tab
-        .print_to_pdf(Some(pdf_options))
+        .print_to_pdf(None)
         .map_err(|e| format!("Failed to generate PDF: {}", e))?;
 
     // 写入文件
