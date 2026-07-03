@@ -49,7 +49,7 @@ describe('App', () => {
 
   it('应该渲染打开和保存按钮', () => {
     render(<App />)
-    expect(screen.getByText('打开')).toBeInTheDocument()
+    expect(screen.getByText('打开文件')).toBeInTheDocument()
     expect(screen.getByText('保存')).toBeInTheDocument()
   })
 

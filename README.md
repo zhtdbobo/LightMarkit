@@ -8,6 +8,9 @@
 - ✏️ CodeMirror 6 编辑器内核
 - 📝 实时 Markdown 预览
 - 💾 自动保存机制
+- 📁 文件夹浏览与多文件管理
+- 📊 Mermaid 图表支持
+- 📤 多格式导出（HTML、PDF、Markdown）
 - 🎨 明暗主题支持
 - 🔍 全文搜索功能
 

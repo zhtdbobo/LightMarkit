@@ -203,3 +203,19 @@
   background-color: #ffffff;
   border-radius: 6px;
 }
+
+/* Mermaid 图表样式 */
+.preview-container .mermaid {
+  background-color: #ffffff;
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid #e7e1d7;
+  border-radius: 8px;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.preview-container .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
