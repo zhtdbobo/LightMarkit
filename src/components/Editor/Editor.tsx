@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
+import { createEditingExtensions } from './extensions'
 import './Editor.css'
 
 export interface EditorProps {
@@ -36,6 +37,7 @@ const Editor: React.FC<EditorProps> = ({
       extensions: [
         basicSetup,
         markdown(),
+        ...createEditingExtensions(),
         EditorView.editable.of(!readOnly),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && onChange) {
@@ -59,7 +61,8 @@ const Editor: React.FC<EditorProps> = ({
       view.destroy()
       viewRef.current = null
     }
-  }, []) // 仅在挂载时初始化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // 仅在挂载时初始化，忽略 props 依赖检查
 
   // 处理受控模式下的 value 变化
   useEffect(() => {
@@ -78,11 +81,7 @@ const Editor: React.FC<EditorProps> = ({
   }, [value])
 
   return (
-    <div
-      ref={editorRef}
-      data-testid="editor-container"
-      className={`editor-wrapper ${className}`}
-    />
+    <div ref={editorRef} data-testid="editor-container" className={`editor-wrapper ${className}`} />
   )
 }
 

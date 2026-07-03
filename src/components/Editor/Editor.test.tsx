@@ -38,9 +38,12 @@ describe('Editor', () => {
         await user.click(editorElement)
         await user.keyboard('new text')
 
-        await waitFor(() => {
-          expect(handleChange).toHaveBeenCalled()
-        }, { timeout: 1000 })
+        await waitFor(
+          () => {
+            expect(handleChange).toHaveBeenCalled()
+          },
+          { timeout: 1000 }
+        )
       }
     })
 

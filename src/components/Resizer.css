@@ -1,0 +1,44 @@
+.resizer {
+  width: 8px;
+  cursor: col-resize;
+  position: relative;
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background-color: rgba(26, 115, 232, 0.1);
+}
+
+.resizer-line {
+  width: 2px;
+  height: 100%;
+  background-color: #e7e1d7;
+  transition: background-color 0.2s ease;
+}
+
+.resizer:hover .resizer-line,
+.resizer.dragging .resizer-line {
+  background-color: #1a73e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .resizer:hover,
+  .resizer.dragging {
+    background-color: rgba(79, 195, 247, 0.1);
+  }
+
+  .resizer-line {
+    background-color: #3e3e42;
+  }
+
+  .resizer:hover .resizer-line,
+  .resizer.dragging .resizer-line {
+    background-color: #4fc3f7;
+  }
+}

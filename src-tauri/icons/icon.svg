@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 - 温暖的奶油色 -->
+  <rect width="512" height="512" rx="64" fill="#F7F4EF"/>
+
+  <!-- M 字母图标 - 使用 terracotta 强调色 -->
+  <path d="M 108 113.4 h 70.4 L 257.25 337 h 0.8 l 76.8 -223.6 h 69.6 V 399 h -47.6 V 178.6 h -0.8 L 276.85 399 h -41.2 L 156.45 178.6 h -0.8 V 399 h -47.6 z"
+        fill="#C4612F"
+        stroke="#A94E22"
+        stroke-width="2"/>
+
+  <!-- 装饰线条 - 编辑器风格 -->
+  <!-- 下划线装饰 -->
+  <line x1="108" y1="420" x2="404" y2="420" stroke="#E7E1D7" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 右上角装饰点 -->
+  <circle cx="420" cy="130" r="8" fill="#C4612F" opacity="0.6"/>
+  <circle cx="450" cy="130" r="8" fill="#C4612F" opacity="0.4"/>
+  <circle cx="480" cy="130" r="8" fill="#C4612F" opacity="0.2"/>
+</svg>

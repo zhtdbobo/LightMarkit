@@ -20,7 +20,9 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -38,6 +40,13 @@ html, body, #root {
   border-bottom: 1px solid #e0e0e0;
   padding: 16px 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-header > div:first-child {
+  flex: 1;
 }
 
 .app-header h1 {
@@ -53,11 +62,120 @@ html, body, #root {
   margin: 4px 0 0 0;
 }
 
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.save-status {
+  font-size: 14px;
+  color: #34a853;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.action-button {
+  padding: 8px 16px;
+  border: 1px solid #e0e0e0;
+  background-color: #ffffff;
+  color: #1a73e8;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-button:hover {
+  background-color: #f6f6f6;
+  border-color: #1a73e8;
+}
+
+.view-mode-switcher {
+  display: flex;
+  gap: 4px;
+  background-color: #f6f6f6;
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.mode-button {
+  padding: 6px 16px;
+  border: none;
+  background-color: transparent;
+  color: #5f6368;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-button:hover {
+  background-color: #e8e8e8;
+  color: #1a73e8;
+}
+
+.mode-button.active {
+  background-color: #1a73e8;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.3);
+}
+
 .app-main {
   flex: 1;
   display: flex;
   overflow: hidden;
   background-color: #ffffff;
+}
+
+.editor-preview-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background-color: #e7e1d7;
+}
+
+/* 纯编辑模式 */
+.editor-preview-container.mode-edit .editor-panel {
+  flex: 1;
+  width: 100%;
+}
+
+/* 分屏模式 */
+.editor-preview-container.mode-split .editor-panel,
+.editor-preview-container.mode-split .preview-panel {
+  flex: 0 0 auto;
+}
+
+/* 纯预览模式 */
+.editor-preview-container.mode-preview .preview-panel {
+  flex: 1;
+  width: 100%;
+}
+
+.editor-panel {
+  height: 100%;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.preview-panel {
+  height: 100%;
+  overflow-y: auto;
+  background-color: #fbf9f5;
 }
 
 .app-main .editor-wrapper {
@@ -84,8 +202,102 @@ html, body, #root {
     color: #9e9e9e;
   }
 
+  .action-button {
+    background-color: #1e1e1e;
+    border-color: #3e3e42;
+    color: #4fc3f7;
+  }
+
+  .action-button:hover {
+    background-color: #2a2d2e;
+    border-color: #4fc3f7;
+  }
+
+  .view-mode-switcher {
+    background-color: #1e1e1e;
+  }
+
+  .mode-button {
+    color: #9e9e9e;
+  }
+
+  .mode-button:hover {
+    background-color: #2a2d2e;
+    color: #4fc3f7;
+  }
+
+  .mode-button.active {
+    background-color: #4fc3f7;
+    color: #1e1e1e;
+    box-shadow: 0 1px 3px rgba(79, 195, 247, 0.3);
+  }
+
   .app-main {
     background-color: #1e1e1e;
+  }
+
+  .editor-preview-container {
+    background-color: #3e3e42;
+  }
+
+  .editor-panel {
+    background-color: #1e1e1e;
+  }
+
+  .preview-panel {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+  }
+
+  .preview-panel h1,
+  .preview-panel h2,
+  .preview-panel h3,
+  .preview-panel h4,
+  .preview-panel h5,
+  .preview-panel h6 {
+    color: #4fc3f7;
+  }
+
+  .preview-panel a {
+    color: #4fc3f7;
+  }
+
+  .preview-panel code {
+    background-color: #2d2d30;
+    color: #d7ba7d;
+  }
+
+  .preview-panel pre {
+    background-color: #1e1e1e;
+    border-color: #3e3e42;
+  }
+
+  .preview-panel blockquote {
+    color: #9e9e9e;
+    border-left-color: #4fc3f7;
+    background-color: #252526;
+  }
+
+  .preview-panel table th {
+    background-color: #252526;
+  }
+
+  .preview-panel table tr {
+    background-color: #1e1e1e;
+    border-top-color: #3e3e42;
+  }
+
+  .preview-panel table th,
+  .preview-panel table td {
+    border-color: #3e3e42;
+  }
+
+  .preview-panel table tr:nth-child(2n) {
+    background-color: #252526;
+  }
+
+  .preview-panel hr {
+    background-color: #3e3e42;
   }
 
   .editor-wrapper .cm-editor {
