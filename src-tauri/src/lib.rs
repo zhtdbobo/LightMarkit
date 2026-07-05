@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::{env, sync::Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, process, sync::Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -336,6 +337,58 @@ img {
 }
 "#;
 
+fn percent_encode_file_url_path(path: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut encoded = String::new();
+
+    for byte in path.as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                encoded.push(*byte as char)
+            }
+            byte => {
+                encoded.push('%');
+                encoded.push(HEX[(byte >> 4) as usize] as char);
+                encoded.push(HEX[(byte & 0x0f) as usize] as char);
+            }
+        }
+    }
+
+    encoded
+}
+
+fn path_to_file_url(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+
+    if let Some(unc_path) = normalized.strip_prefix("//") {
+        let mut parts = unc_path.splitn(2, '/');
+        let host = parts.next().unwrap_or_default();
+        let path = parts.next().unwrap_or_default();
+
+        return format!("file://{}/{}", host, percent_encode_file_url_path(path));
+    }
+
+    let encoded = percent_encode_file_url_path(&normalized);
+    if normalized.starts_with('/') {
+        format!("file://{}", encoded)
+    } else {
+        format!("file:///{}", encoded)
+    }
+}
+
+fn temporary_export_html_path() -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+
+    env::temp_dir().join(format!(
+        "lightmarkit-pdf-{}-{}.html",
+        process::id(),
+        timestamp
+    ))
+}
+
 #[tauri::command]
 async fn export_html(file_path: String, html_content: String, title: String) -> Result<(), String> {
     let full_html = format!(
@@ -386,29 +439,68 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
         title, EXPORT_DOCUMENT_STYLE, html_content
     );
 
-    let browser = Browser::new(LaunchOptions {
-        headless: true,
-        ..Default::default()
-    })
-    .map_err(|e| format!("Failed to launch browser: {}", e))?;
+    let temp_html_path = temporary_export_html_path();
+    fs::write(&temp_html_path, full_html)
+        .map_err(|e| format!("Failed to write temporary HTML file: {}", e))?;
+    let temp_html_url = path_to_file_url(&temp_html_path);
 
-    let tab = browser
-        .new_tab()
-        .map_err(|e| format!("Failed to create new tab: {}", e))?;
+    let pdf_result = (|| -> Result<Vec<u8>, String> {
+        let browser = Browser::new(LaunchOptions {
+            headless: true,
+            ..Default::default()
+        })
+        .map_err(|e| format!("Failed to launch browser: {}", e))?;
 
-    tab.navigate_to(&format!(
-        "data:text/html,{}",
-        urlencoding::encode(&full_html)
-    ))
-    .map_err(|e| format!("Failed to navigate: {}", e))?;
+        let tab = browser
+            .new_tab()
+            .map_err(|e| format!("Failed to create new tab: {}", e))?;
 
-    tab.wait_until_navigated()
-        .map_err(|e| format!("Failed to wait for navigation: {}", e))?;
-    std::thread::sleep(std::time::Duration::from_secs(1));
+        tab.navigate_to(&temp_html_url)
+            .map_err(|e| format!("Failed to navigate: {}", e))?;
 
-    let pdf_data = tab
-        .print_to_pdf(None)
-        .map_err(|e| format!("Failed to generate PDF: {}", e))?;
+        tab.wait_until_navigated()
+            .map_err(|e| format!("Failed to wait for navigation: {}", e))?;
+
+        tab.evaluate(
+            r#"
+            new Promise((resolve) => {
+                const images = Array.from(document.images);
+
+                if (images.length === 0) {
+                    resolve(true);
+                    return;
+                }
+
+                let pending = images.length;
+                const done = () => {
+                    pending -= 1;
+                    if (pending <= 0) {
+                        resolve(true);
+                    }
+                };
+
+                images.forEach((image) => {
+                    if (image.complete) {
+                        done();
+                    } else {
+                        image.addEventListener('load', done, { once: true });
+                        image.addEventListener('error', done, { once: true });
+                    }
+                });
+
+                setTimeout(() => resolve(false), 5000);
+            })
+            "#,
+            true,
+        )
+        .map_err(|e| format!("Failed to wait for images: {}", e))?;
+
+        tab.print_to_pdf(None)
+            .map_err(|e| format!("Failed to generate PDF: {}", e))
+    })();
+
+    let _ = fs::remove_file(&temp_html_path);
+    let pdf_data = pdf_result?;
 
     let temp_path = format!("{}.tmp", file_path);
     fs::write(&temp_path, pdf_data).map_err(|e| format!("Failed to write PDF file: {}", e))?;
@@ -519,5 +611,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(path, PathBuf::from("C:\\notes\\draft.md"));
+    }
+
+    #[test]
+    fn converts_windows_path_to_file_url() {
+        let url = path_to_file_url(Path::new(
+            "C:\\Users\\Lenovo\\AppData\\Local\\Temp\\light markit export.html",
+        ));
+
+        assert_eq!(
+            url,
+            "file:///C:/Users/Lenovo/AppData/Local/Temp/light%20markit%20export.html"
+        );
     }
 }
