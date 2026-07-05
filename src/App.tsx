@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
 import { Resizer } from './components/Resizer'
@@ -13,6 +14,88 @@ import './App.css'
 
 type ViewMode = 'edit' | 'split' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
+type ToolbarMenu = 'file' | 'export' | null
+type ExportExtension = 'html' | 'pdf' | 'md'
+
+const FALLBACK_DOCUMENT_NAME = 'LightMarkit Document'
+const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i
+const INVALID_FILE_NAME_CHARACTERS = /[<>:"/\\|?*]/g
+
+function replaceControlCharacters(value: string): string {
+  return Array.from(value, (character) => {
+    return character.charCodeAt(0) < 32 ? ' ' : character
+  }).join('')
+}
+
+function getExportFileName(
+  content: string,
+  currentFile: string | null,
+  extension: ExportExtension
+): string {
+  const currentFileName = currentFile?.split(/[\\/]/).pop()
+  const currentBaseName = currentFileName?.replace(MARKDOWN_EXTENSION_PATTERN, '').trim()
+  const firstHeading = content.match(/^#\s+(.+)$/m)?.[1]?.trim()
+  const documentName = currentBaseName || firstHeading || FALLBACK_DOCUMENT_NAME
+  const sanitizedName = replaceControlCharacters(documentName)
+    .replace(INVALID_FILE_NAME_CHARACTERS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+
+  return `${sanitizedName || FALLBACK_DOCUMENT_NAME}.${extension}`
+}
+
+function ViewModeIcon({ mode }: { mode: ViewMode }) {
+  if (mode === 'edit') {
+    return (
+      <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 19h4L19 9l-4-4L5 15v4z" />
+        <path d="M14 6l4 4" />
+      </svg>
+    )
+  }
+
+  if (mode === 'split') {
+    return (
+      <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" />
+        <path d="M12 5v14" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+function WindowControlIcon({ action }: { action: 'minimize' | 'maximize' | 'close' }) {
+  if (action === 'minimize') {
+    return (
+      <svg className="window-control-icon" viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M2 8.5h8" />
+      </svg>
+    )
+  }
+
+  if (action === 'maximize') {
+    return (
+      <svg className="window-control-icon" viewBox="0 0 12 12" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="7" height="7" rx="0.5" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className="window-control-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 3l6 6" />
+      <path d="M9 3L3 9" />
+    </svg>
+  )
+}
 
 // 创建 Markdown 渲染器（用于导出）
 const md = new MarkdownIt({
@@ -52,7 +135,38 @@ function App() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [folderFiles, setFolderFiles] = useState<FileInfo[]>([])
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
   const autoSaveTimerRef = useRef<number | null>(null)
+  const headerActionsRef = useRef<HTMLElement | null>(null)
+
+  const runToolbarAction = useCallback((action: () => void | Promise<void>) => {
+    setOpenMenu(null)
+    void action()
+  }, [])
+
+  const handleMinimizeWindow = useCallback(() => {
+    void getCurrentWindow().minimize()
+  }, [])
+
+  const handleToggleMaximizeWindow = useCallback(() => {
+    void getCurrentWindow().toggleMaximize()
+  }, [])
+
+  const handleDragWindow = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || event.detail > 1) {
+      return
+    }
+
+    const target = event.target
+    if (
+      target instanceof Element &&
+      target.closest('button, [role="menu"], .menu-panel, .window-controls')
+    ) {
+      return
+    }
+
+    void getCurrentWindow().startDragging()
+  }, [])
 
   // 打开文件
   const handleOpenFile = useCallback(async () => {
@@ -113,6 +227,7 @@ function App() {
   const handleExportHtml = useCallback(async () => {
     try {
       const filePath = await save({
+        defaultPath: getExportFileName(content, currentFile, 'html'),
         filters: [
           {
             name: 'HTML',
@@ -148,6 +263,7 @@ function App() {
   const handleExportPdf = useCallback(async () => {
     try {
       const filePath = await save({
+        defaultPath: getExportFileName(content, currentFile, 'pdf'),
         filters: [
           {
             name: 'PDF',
@@ -183,6 +299,7 @@ function App() {
   const handleExportMarkdown = useCallback(async () => {
     try {
       const filePath = await save({
+        defaultPath: getExportFileName(content, currentFile, 'md'),
         filters: [
           {
             name: 'Markdown',
@@ -198,13 +315,12 @@ function App() {
     } catch (error) {
       console.error('Failed to export Markdown:', error)
     }
-  }, [content])
+  }, [content, currentFile])
 
   // 另存为
   const handleSaveAsFile = useCallback(async () => {
     try {
-      const selected = await open({
-        multiple: false,
+      const selected = await save({
         filters: [
           {
             name: 'Markdown',
@@ -213,7 +329,7 @@ function App() {
         ],
       })
 
-      if (selected && typeof selected === 'string') {
+      if (selected) {
         await fileWrite(selected, content)
         setCurrentFilePath(selected)
         await setCurrentFile(selected)
@@ -246,6 +362,14 @@ function App() {
       setSaveStatus('idle')
     }
   }, [currentFile, content, handleSaveAsFile])
+
+  const handleCloseWindow = useCallback(async () => {
+    if (currentFile) {
+      await handleSaveFile()
+    }
+
+    await getCurrentWindow().close()
+  }, [currentFile, handleSaveFile])
 
   // 自动保存：内容变更后 500ms 防抖触发
   useEffect(() => {
@@ -326,20 +450,21 @@ function App() {
         })
       }
 
+      // 打开文件夹快捷键
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault()
+        handleOpenFolder()
+        return
+      }
+
       // 打开文件快捷键
-      if (e.ctrlKey && e.key === 'o') {
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         handleOpenFile()
       }
 
-      // 打开文件夹快捷键
-      if (e.ctrlKey && e.shiftKey && e.key === 'O') {
-        e.preventDefault()
-        handleOpenFolder()
-      }
-
       // 保存文件快捷键
-      if (e.ctrlKey && e.key === 's') {
+      if (e.ctrlKey && e.key.toLowerCase() === 's') {
         e.preventDefault()
         handleSaveFile()
       }
@@ -349,56 +474,168 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleOpenFile, handleOpenFolder, handleSaveFile])
 
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+
+      if (!(target instanceof Node) || !headerActionsRef.current?.contains(target)) {
+        setOpenMenu(null)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenu(null)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [])
+
   return (
     <div className="app-container">
-      <header className="app-header">
-        <div>
-          <h1>LightMarkit</h1>
-          <p className="subtitle">
-            {currentFile ? currentFile.split(/[\\/]/).pop() : '轻量级 Markdown 编辑器'}
-          </p>
-        </div>
-        <div className="header-actions">
-          {saveStatus === 'saved' && <span className="save-status">✓ 已自动保存</span>}
-          <button className="action-button" onClick={handleOpenFile} title="打开文件 (Ctrl+O)">
-            打开文件
-          </button>
-          <button className="action-button" onClick={handleOpenFolder} title="打开文件夹 (Ctrl+Shift+O)">
-            打开文件夹
-          </button>
-          <button className="action-button" onClick={handleSaveFile} title="保存文件 (Ctrl+S)">
-            保存
-          </button>
-          <button className="action-button" onClick={handleExportHtml} title="导出 HTML">
-            导出 HTML
-          </button>
-          <button className="action-button" onClick={handleExportPdf} title="导出 PDF">
-            导出 PDF
-          </button>
-          <button className="action-button" onClick={handleExportMarkdown} title="导出 Markdown">
-            导出 Markdown
-          </button>
-          <div className="view-mode-switcher">
+      <header className="app-header" ref={headerActionsRef} onPointerDown={handleDragWindow}>
+        <nav className="app-menu-bar" aria-label="应用菜单">
+          <div className={`toolbar-menu ${openMenu === 'file' ? 'open' : ''}`}>
             <button
+              type="button"
+              className="menu-trigger"
+              onClick={() => setOpenMenu((menu) => (menu === 'file' ? null : 'file'))}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'file'}
+              aria-label="文件"
+            >
+              文件
+            </button>
+            <div className="menu-panel" role="menu">
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => runToolbarAction(handleOpenFile)}
+                title="打开文件 (Ctrl+O)"
+                role="menuitem"
+              >
+                打开文件
+              </button>
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => runToolbarAction(handleOpenFolder)}
+                title="打开文件夹 (Ctrl+Shift+O)"
+                role="menuitem"
+              >
+                打开文件夹
+              </button>
+            </div>
+          </div>
+
+          <div className={`toolbar-menu ${openMenu === 'export' ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="menu-trigger"
+              onClick={() => setOpenMenu((menu) => (menu === 'export' ? null : 'export'))}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'export'}
+              aria-label="导出"
+            >
+              导出
+            </button>
+            <div className="menu-panel" role="menu">
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => runToolbarAction(handleExportHtml)}
+                title="导出 HTML"
+                role="menuitem"
+              >
+                导出 HTML
+              </button>
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => runToolbarAction(handleExportPdf)}
+                title="导出 PDF"
+                role="menuitem"
+              >
+                导出 PDF
+              </button>
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => runToolbarAction(handleExportMarkdown)}
+                title="导出 Markdown"
+                role="menuitem"
+              >
+                导出 Markdown
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        <div className="header-actions" aria-label="文档工具栏">
+          {saveStatus === 'saved' && <span className="save-status">✓ 已自动保存</span>}
+          <div className="view-mode-switcher" aria-label="视图模式">
+            <button
+              type="button"
               className={`mode-button ${viewMode === 'edit' ? 'active' : ''}`}
               onClick={() => setViewMode('edit')}
               title="纯编辑模式 (Ctrl+/)"
+              aria-label="编辑"
             >
-              编辑
+              <ViewModeIcon mode="edit" />
             </button>
             <button
+              type="button"
               className={`mode-button ${viewMode === 'split' ? 'active' : ''}`}
               onClick={() => setViewMode('split')}
               title="分屏模式 (Ctrl+/)"
+              aria-label="分屏"
             >
-              分屏
+              <ViewModeIcon mode="split" />
             </button>
             <button
+              type="button"
               className={`mode-button ${viewMode === 'preview' ? 'active' : ''}`}
               onClick={() => setViewMode('preview')}
               title="纯预览模式 (Ctrl+/)"
+              aria-label="预览"
             >
-              预览
+              <ViewModeIcon mode="preview" />
+            </button>
+          </div>
+          <div className="window-controls" aria-label="窗口控制">
+            <button
+              type="button"
+              className="window-control-button"
+              onClick={handleMinimizeWindow}
+              title="最小化"
+              aria-label="最小化"
+            >
+              <WindowControlIcon action="minimize" />
+            </button>
+            <button
+              type="button"
+              className="window-control-button"
+              onClick={handleToggleMaximizeWindow}
+              title="最大化"
+              aria-label="最大化"
+            >
+              <WindowControlIcon action="maximize" />
+            </button>
+            <button
+              type="button"
+              className="window-control-button close"
+              onClick={handleCloseWindow}
+              title="关闭"
+              aria-label="关闭"
+            >
+              <WindowControlIcon action="close" />
             </button>
           </div>
         </div>
@@ -415,25 +652,27 @@ function App() {
             </aside>
           )}
           <div className={`editor-preview-container mode-${viewMode}`}>
-          {(viewMode === 'edit' || viewMode === 'split') && (
-            <div
-              className="editor-panel"
-              style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
-            >
-              <Editor value={content} onChange={setContent} />
-            </div>
-          )}
-          {viewMode === 'split' && <Resizer onResize={setLeftWidth} initialLeftWidth={leftWidth} />}
-          {(viewMode === 'preview' || viewMode === 'split') && (
-            <div
-              className="preview-panel"
-              style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
-            >
-              <Preview content={content} />
-            </div>
-          )}
+            {(viewMode === 'edit' || viewMode === 'split') && (
+              <div
+                className="editor-panel"
+                style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
+              >
+                <Editor value={content} onChange={setContent} />
+              </div>
+            )}
+            {viewMode === 'split' && (
+              <Resizer onResize={setLeftWidth} initialLeftWidth={leftWidth} />
+            )}
+            {(viewMode === 'preview' || viewMode === 'split') && (
+              <div
+                className="preview-panel"
+                style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
+              >
+                <Preview content={content} />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       </main>
     </div>
   )

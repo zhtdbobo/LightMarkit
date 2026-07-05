@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+src-tauri/target/
+src-tauri/target-codex-test*/
 *.local
 
 # Editor directories and files

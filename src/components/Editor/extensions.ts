@@ -1,4 +1,4 @@
-import { Extension } from '@codemirror/state'
+import { EditorState, Extension } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
@@ -34,7 +34,7 @@ function wrapSelection(view: EditorView, before: string, after: string = before)
 /**
  * 检测当前行是否是列表项
  */
-function getCurrentLineListPrefix(state: any, pos: number): string | null {
+function getCurrentLineListPrefix(state: EditorState, pos: number): string | null {
   const line = state.doc.lineAt(pos)
   const lineText = line.text
   const match = lineText.match(/^(\s*[-*+]\s+)/)
