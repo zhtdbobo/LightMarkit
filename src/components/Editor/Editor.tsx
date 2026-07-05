@@ -36,6 +36,7 @@ const Editor: React.FC<EditorProps> = ({
       doc: value !== undefined ? value : initialValue,
       extensions: [
         basicSetup,
+        EditorView.lineWrapping,
         markdown(),
         ...createEditingExtensions(),
         EditorView.editable.of(!readOnly),

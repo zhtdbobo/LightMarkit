@@ -19,10 +19,12 @@
 .editor-wrapper .cm-content {
   padding: 12px;
   min-height: 100%;
+  overflow-wrap: anywhere;
 }
 
 .editor-wrapper .cm-line {
   padding: 2px 0;
+  overflow-wrap: anywhere;
 }
 
 /* Markdown 语法高亮样式 */

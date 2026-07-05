@@ -18,7 +18,7 @@
 .resizer-line {
   width: 2px;
   height: 100%;
-  background-color: #e7e1d7;
+  background-color: #dbeafe;
   transition: background-color 0.2s ease;
 }
 

@@ -4,9 +4,11 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.6;
-  color: #1f2421;
-  background-color: #fbf9f5;
+  color: #1f2937;
+  background-color: #ffffff;
   overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
   height: 100%;
 }
 
@@ -21,36 +23,40 @@
   margin-bottom: 0.5em;
   font-weight: 600;
   line-height: 1.25;
-  color: #1f2421;
+  color: #1d4ed8;
 }
 
 .preview-container h1 {
   font-size: 2em;
-  border-bottom: 1px solid #e7e1d7;
+  border-bottom: 1px solid #dbeafe;
   padding-bottom: 0.3em;
 }
 
 .preview-container h2 {
   font-size: 1.5em;
-  border-bottom: 1px solid #e7e1d7;
+  color: #2563eb;
+  border-bottom: 1px solid #dbeafe;
   padding-bottom: 0.3em;
 }
 
 .preview-container h3 {
   font-size: 1.25em;
+  color: #0f766e;
 }
 
 .preview-container h4 {
   font-size: 1em;
+  color: #7c3aed;
 }
 
 .preview-container h5 {
   font-size: 0.875em;
+  color: #be123c;
 }
 
 .preview-container h6 {
   font-size: 0.85em;
-  color: #5c635d;
+  color: #64748b;
 }
 
 /* 段落和文本 */
@@ -61,20 +67,22 @@
 
 .preview-container strong {
   font-weight: 600;
+  color: #111827;
 }
 
 .preview-container em {
   font-style: italic;
+  color: #7c3aed;
 }
 
 /* 链接 */
 .preview-container a {
-  color: #c4612f;
+  color: #0b6bcb;
   text-decoration: none;
 }
 
 .preview-container a:hover {
-  color: #a94e22;
+  color: #084c94;
   text-decoration: underline;
 }
 
@@ -83,25 +91,34 @@
   padding: 0.2em 0.4em;
   margin: 0;
   font-size: 85%;
-  background-color: rgba(196, 97, 47, 0.1);
+  color: #9a3412;
+  background-color: #fff7ed;
   border-radius: 3px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-family:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 .preview-container pre {
   padding: 1em;
-  overflow: auto;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-size: 85%;
   line-height: 1.45;
-  background-color: #f7f4ef;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  background-color: #fff8e8;
   border-radius: 6px;
-  border: 1px solid #e7e1d7;
+  border: 1px solid #fde68a;
 }
 
 .preview-container pre code {
   padding: 0;
   margin: 0;
+  white-space: inherit;
   background-color: transparent;
   border-radius: 0;
 }
@@ -118,6 +135,11 @@
   margin-bottom: 0.25em;
 }
 
+.preview-container li::marker {
+  color: #2563eb;
+  font-weight: 600;
+}
+
 .preview-container li > p {
   margin-bottom: 0.5em;
 }
@@ -131,6 +153,7 @@
 .preview-container .task-list-item-checkbox {
   margin-right: 0.5em;
   margin-left: 0.25em;
+  accent-color: #0f766e;
   vertical-align: middle;
 }
 
@@ -138,9 +161,9 @@
 .preview-container blockquote {
   margin: 0 0 1em 0;
   padding: 0 1em;
-  color: #5c635d;
-  border-left: 4px solid #c4612f;
-  background-color: #f7f4ef;
+  color: #475569;
+  border-left: 4px solid #14b8a6;
+  background-color: #f8fafc;
 }
 
 .preview-container blockquote > :first-child {
@@ -156,7 +179,7 @@
   height: 1px;
   padding: 0;
   margin: 1.5em 0;
-  background-color: #e7e1d7;
+  background-color: #dbeafe;
   border: 0;
 }
 
@@ -172,28 +195,29 @@
 .preview-container table th,
 .preview-container table td {
   padding: 6px 13px;
-  border: 1px solid #e7e1d7;
+  border: 1px solid #e5e7eb;
 }
 
 .preview-container table th {
   font-weight: 600;
-  background-color: #f7f4ef;
+  color: #334155;
+  background-color: #f8fafc;
 }
 
 .preview-container table tr {
   background-color: #ffffff;
-  border-top: 1px solid #e7e1d7;
+  border-top: 1px solid #e5e7eb;
 }
 
 .preview-container table tr:nth-child(2n) {
-  background-color: #fbf9f5;
+  background-color: #f9fafb;
 }
 
 /* 删除线 */
 .preview-container s,
 .preview-container del {
   text-decoration: line-through;
-  color: #5c635d;
+  color: #9f1239;
 }
 
 /* 图片 */
@@ -201,15 +225,16 @@
   max-width: 100%;
   box-sizing: border-box;
   background-color: #ffffff;
+  border: 1px solid #e5e7eb;
   border-radius: 6px;
 }
 
 /* Mermaid 图表样式 */
 .preview-container .mermaid {
-  background-color: #ffffff;
+  background-color: #f8fafc;
   padding: 16px;
   margin: 16px 0;
-  border: 1px solid #e7e1d7;
+  border: 1px solid #dbeafe;
   border-radius: 8px;
   text-align: center;
   overflow-x: auto;

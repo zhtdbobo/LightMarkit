@@ -1,20 +1,21 @@
+use base64::{engine::general_purpose, Engine as _};
+use headless_chrome::{Browser, LaunchOptions};
+use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::{env, sync::Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, State,
 };
-use serde::{Deserialize, Serialize};
-use headless_chrome::{Browser, LaunchOptions};
 
-// 文件状态管理
 #[derive(Default)]
 struct FileState {
-    current_file: std::sync::Mutex<Option<PathBuf>>,
+    current_file: Mutex<Option<PathBuf>>,
 }
 
-// 文件信息结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FileInfo {
     name: String,
@@ -23,24 +24,51 @@ struct FileInfo {
     children: Option<Vec<FileInfo>>,
 }
 
-// 读取文件内容
+fn is_markdown_file_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+        })
+        .unwrap_or(false)
+}
+
+fn markdown_file_arg_from_args<I, S>(args: I) -> Option<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    args.into_iter().skip(1).find_map(|arg| {
+        let arg = arg.into();
+
+        if arg.to_string_lossy().starts_with('-') {
+            return None;
+        }
+
+        let path = PathBuf::from(arg);
+        if !is_markdown_file_path(&path) {
+            return None;
+        }
+
+        Some(path)
+    })
+}
+
+fn initial_file_from_args() -> Option<PathBuf> {
+    markdown_file_arg_from_args(env::args_os()).filter(|path| path.is_file())
+}
+
 #[tauri::command]
 async fn file_read(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
-// 写入文件内容（原子写入）
 #[tauri::command]
 async fn file_write(path: String, content: String) -> Result<(), String> {
-    // 创建临时文件路径
     let temp_path = format!("{}.tmp", path);
-
-    // 先写入临时文件
     fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
 
-    // 原子性地重命名临时文件到目标文件
     fs::rename(&temp_path, &path).map_err(|e| {
-        // 如果重命名失败，尝试删除临时文件
         let _ = fs::remove_file(&temp_path);
         format!("Failed to rename temp file: {}", e)
     })?;
@@ -48,14 +76,42 @@ async fn file_write(path: String, content: String) -> Result<(), String> {
     Ok(())
 }
 
-// 获取当前打开的文件路径
+fn image_mime_type(path: &Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => Some("image/png"),
+        Some("jpg") | Some("jpeg") => Some("image/jpeg"),
+        Some("gif") => Some("image/gif"),
+        Some("webp") => Some("image/webp"),
+        Some("svg") => Some("image/svg+xml"),
+        Some("bmp") => Some("image/bmp"),
+        Some("ico") => Some("image/x-icon"),
+        Some("avif") => Some("image/avif"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+async fn read_image_as_data_url(path: String) -> Result<String, String> {
+    let image_path = PathBuf::from(&path);
+    let mime_type =
+        image_mime_type(&image_path).ok_or_else(|| "Unsupported image format".to_string())?;
+    let image_data = fs::read(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
+    let encoded_data = general_purpose::STANDARD.encode(image_data);
+
+    Ok(format!("data:{};base64,{}", mime_type, encoded_data))
+}
+
 #[tauri::command]
 async fn get_current_file(state: State<'_, FileState>) -> Result<Option<String>, String> {
     let current = state.current_file.lock().unwrap();
     Ok(current.as_ref().map(|p| p.to_string_lossy().to_string()))
 }
 
-// 设置当前打开的文件路径
 #[tauri::command]
 async fn set_current_file(path: Option<String>, state: State<'_, FileState>) -> Result<(), String> {
     let mut current = state.current_file.lock().unwrap();
@@ -63,7 +119,6 @@ async fn set_current_file(path: Option<String>, state: State<'_, FileState>) -> 
     Ok(())
 }
 
-// 扫描文件夹中的 Markdown 文件
 #[tauri::command]
 async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
     let path = Path::new(&folder_path);
@@ -74,21 +129,19 @@ async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
     fn scan_directory(dir_path: &Path) -> Result<Vec<FileInfo>, String> {
         let mut files = Vec::new();
 
-        let entries = fs::read_dir(dir_path)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
+        let entries =
+            fs::read_dir(dir_path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
 
-            // 跳过隐藏文件和特殊目录
             if name.starts_with('.') || name == "node_modules" || name == "target" {
                 continue;
             }
 
             if path.is_dir() {
-                // 递归扫描子目录
                 let children = scan_directory(&path)?;
                 if !children.is_empty() {
                     files.push(FileInfo {
@@ -98,26 +151,20 @@ async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
                         children: Some(children),
                     });
                 }
-            } else if let Some(ext) = path.extension() {
-                // 只包含 .md 和 .markdown 文件
-                if ext == "md" || ext == "markdown" {
-                    files.push(FileInfo {
-                        name,
-                        path: path.to_string_lossy().to_string(),
-                        is_dir: false,
-                        children: None,
-                    });
-                }
+            } else if is_markdown_file_path(&path) {
+                files.push(FileInfo {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    is_dir: false,
+                    children: None,
+                });
             }
         }
 
-        // 按名称排序：目录优先，然后按字母顺序
-        files.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        files.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
 
         Ok(files)
@@ -126,10 +173,171 @@ async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
     scan_directory(path)
 }
 
-// 导出 HTML
+const EXPORT_DOCUMENT_STYLE: &str = r#"
+body {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    color: #1f2937;
+    background-color: #ffffff;
+}
+h1, h2, h3, h4, h5, h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+    color: #1d4ed8;
+    page-break-after: avoid;
+}
+h1 {
+    font-size: 2em;
+    border-bottom: 1px solid #dbeafe;
+    padding-bottom: 0.3em;
+}
+h2 {
+    font-size: 1.5em;
+    color: #2563eb;
+    border-bottom: 1px solid #dbeafe;
+    padding-bottom: 0.3em;
+}
+h3 { font-size: 1.25em; color: #0f766e; }
+h4 { font-size: 1em; color: #7c3aed; }
+h5 { font-size: 0.875em; color: #be123c; }
+h6 { font-size: 0.85em; color: #64748b; }
+p { margin-top: 0; margin-bottom: 1em; }
+strong { font-weight: 600; color: #111827; }
+em { font-style: italic; color: #7c3aed; }
+a { color: #0b6bcb; text-decoration: none; }
+a:hover { color: #084c94; text-decoration: underline; }
+code {
+    padding: 0.2em 0.4em;
+    margin: 0;
+    font-size: 85%;
+    color: #9a3412;
+    background-color: #fff7ed;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+pre {
+    padding: 1em;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    font-size: 85%;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    background-color: #fff8e8;
+    border-radius: 6px;
+    border: 1px solid #fde68a;
+    page-break-inside: avoid;
+}
+pre code {
+    padding: 0;
+    margin: 0;
+    white-space: inherit;
+    background-color: transparent;
+    border-radius: 0;
+}
+ul, ol {
+    margin-top: 0;
+    margin-bottom: 1em;
+    padding-left: 2em;
+}
+li { margin-bottom: 0.25em; }
+li::marker { color: #2563eb; font-weight: 600; }
+li > p { margin-bottom: 0.5em; }
+.task-list-item {
+    list-style-type: none;
+    margin-left: -1.5em;
+}
+.task-list-item-checkbox {
+    margin-right: 0.5em;
+    margin-left: 0.25em;
+    accent-color: #0f766e;
+    vertical-align: middle;
+}
+blockquote {
+    margin: 0 0 1em 0;
+    padding: 0 1em;
+    color: #475569;
+    border-left: 4px solid #14b8a6;
+    background-color: #f8fafc;
+    page-break-inside: avoid;
+}
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+hr {
+    height: 1px;
+    padding: 0;
+    margin: 1.5em 0;
+    background-color: #dbeafe;
+    border: 0;
+}
+table {
+    border-spacing: 0;
+    border-collapse: collapse;
+    margin-bottom: 1em;
+    width: 100%;
+    overflow: auto;
+    page-break-inside: avoid;
+}
+table th, table td {
+    padding: 6px 13px;
+    border: 1px solid #e5e7eb;
+}
+table th {
+    font-weight: 600;
+    color: #334155;
+    background-color: #f8fafc;
+}
+table tr {
+    background-color: #ffffff;
+    border-top: 1px solid #e5e7eb;
+}
+table tr:nth-child(2n) { background-color: #f9fafb; }
+s, del {
+    text-decoration: line-through;
+    color: #9f1239;
+}
+img {
+    max-width: 100%;
+    box-sizing: border-box;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    page-break-inside: avoid;
+}
+.mermaid {
+    background-color: #f8fafc;
+    padding: 16px;
+    margin: 16px 0;
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
+    text-align: center;
+    overflow-x: auto;
+    page-break-inside: avoid;
+}
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+@media print {
+    body {
+        max-width: none;
+        padding: 0;
+    }
+}
+"#;
+
 #[tauri::command]
 async fn export_html(file_path: String, html_content: String, title: String) -> Result<(), String> {
-    // 创建完整的 HTML 文档
     let full_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -137,139 +345,7 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{}</title>
-    <style>
-        body {{
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 16px;
-            line-height: 1.6;
-            color: #1f2421;
-            background-color: #fbf9f5;
-        }}
-        h1, h2, h3, h4, h5, h6 {{
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-            font-weight: 600;
-            line-height: 1.25;
-            color: #1f2421;
-        }}
-        h1 {{
-            font-size: 2em;
-            border-bottom: 1px solid #e7e1d7;
-            padding-bottom: 0.3em;
-        }}
-        h2 {{
-            font-size: 1.5em;
-            border-bottom: 1px solid #e7e1d7;
-            padding-bottom: 0.3em;
-        }}
-        h3 {{ font-size: 1.25em; }}
-        h4 {{ font-size: 1em; }}
-        h5 {{ font-size: 0.875em; }}
-        h6 {{ font-size: 0.85em; color: #5c635d; }}
-        p {{ margin-top: 0; margin-bottom: 1em; }}
-        strong {{ font-weight: 600; }}
-        em {{ font-style: italic; }}
-        a {{ color: #c4612f; text-decoration: none; }}
-        a:hover {{ color: #a94e22; text-decoration: underline; }}
-        code {{
-            padding: 0.2em 0.4em;
-            margin: 0;
-            font-size: 85%;
-            background-color: rgba(196, 97, 47, 0.1);
-            border-radius: 3px;
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-        }}
-        pre {{
-            padding: 1em;
-            overflow: auto;
-            font-size: 85%;
-            line-height: 1.45;
-            background-color: #f7f4ef;
-            border-radius: 6px;
-            border: 1px solid #e7e1d7;
-        }}
-        pre code {{
-            padding: 0;
-            margin: 0;
-            background-color: transparent;
-            border-radius: 0;
-        }}
-        ul, ol {{
-            margin-top: 0;
-            margin-bottom: 1em;
-            padding-left: 2em;
-        }}
-        li {{ margin-bottom: 0.25em; }}
-        li > p {{ margin-bottom: 0.5em; }}
-        .task-list-item {{
-            list-style-type: none;
-            margin-left: -1.5em;
-        }}
-        .task-list-item-checkbox {{
-            margin-right: 0.5em;
-            margin-left: 0.25em;
-            vertical-align: middle;
-        }}
-        blockquote {{
-            margin: 0 0 1em 0;
-            padding: 0 1em;
-            color: #5c635d;
-            border-left: 4px solid #c4612f;
-            background-color: #f7f4ef;
-        }}
-        blockquote > :first-child {{ margin-top: 0; }}
-        blockquote > :last-child {{ margin-bottom: 0; }}
-        hr {{
-            height: 1px;
-            padding: 0;
-            margin: 1.5em 0;
-            background-color: #e7e1d7;
-            border: 0;
-        }}
-        table {{
-            border-spacing: 0;
-            border-collapse: collapse;
-            margin-bottom: 1em;
-            width: 100%;
-            overflow: auto;
-        }}
-        table th, table td {{
-            padding: 6px 13px;
-            border: 1px solid #e7e1d7;
-        }}
-        table th {{
-            font-weight: 600;
-            background-color: #f7f4ef;
-        }}
-        table tr {{
-            background-color: #ffffff;
-            border-top: 1px solid #e7e1d7;
-        }}
-        table tr:nth-child(2n) {{
-            background-color: #fbf9f5;
-        }}
-        s, del {{
-            text-decoration: line-through;
-            color: #5c635d;
-        }}
-        img {{
-            max-width: 100%;
-            box-sizing: border-box;
-            background-color: #ffffff;
-            border-radius: 6px;
-        }}
-        .mermaid {{
-            background-color: #ffffff;
-            padding: 16px;
-            margin: 16px 0;
-            border: 1px solid #e7e1d7;
-            border-radius: 8px;
-            text-align: center;
-        }}
-    </style>
+    <style>{}</style>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({{ startOnLoad: true }});
@@ -279,10 +355,9 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
     {}
 </body>
 </html>"#,
-        title, html_content
+        title, EXPORT_DOCUMENT_STYLE, html_content
     );
 
-    // 写入文件
     let temp_path = format!("{}.tmp", file_path);
     fs::write(&temp_path, full_html).map_err(|e| format!("Failed to write HTML file: {}", e))?;
     fs::rename(&temp_path, &file_path).map_err(|e| {
@@ -293,10 +368,8 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
     Ok(())
 }
 
-// 导出 PDF
 #[tauri::command]
 async fn export_pdf(file_path: String, html_content: String, title: String) -> Result<(), String> {
-    // 创建完整的 HTML 文档（用于 PDF，不需要 Mermaid CDN）
     let full_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -304,156 +377,15 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{}</title>
-    <style>
-        body {{
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-            font-size: 16px;
-            line-height: 1.6;
-            color: #1f2421;
-            background-color: #ffffff;
-        }}
-        h1, h2, h3, h4, h5, h6 {{
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-            font-weight: 600;
-            line-height: 1.25;
-            color: #1f2421;
-            page-break-after: avoid;
-        }}
-        h1 {{
-            font-size: 2em;
-            border-bottom: 1px solid #e7e1d7;
-            padding-bottom: 0.3em;
-        }}
-        h2 {{
-            font-size: 1.5em;
-            border-bottom: 1px solid #e7e1d7;
-            padding-bottom: 0.3em;
-        }}
-        h3 {{ font-size: 1.25em; }}
-        h4 {{ font-size: 1em; }}
-        h5 {{ font-size: 0.875em; }}
-        h6 {{ font-size: 0.85em; color: #5c635d; }}
-        p {{ margin-top: 0; margin-bottom: 1em; }}
-        strong {{ font-weight: 600; }}
-        em {{ font-style: italic; }}
-        a {{ color: #c4612f; text-decoration: none; }}
-        code {{
-            padding: 0.2em 0.4em;
-            margin: 0;
-            font-size: 85%;
-            background-color: rgba(196, 97, 47, 0.1);
-            border-radius: 3px;
-            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-        }}
-        pre {{
-            padding: 1em;
-            overflow: auto;
-            font-size: 85%;
-            line-height: 1.45;
-            background-color: #f7f4ef;
-            border-radius: 6px;
-            border: 1px solid #e7e1d7;
-            page-break-inside: avoid;
-        }}
-        pre code {{
-            padding: 0;
-            margin: 0;
-            background-color: transparent;
-            border-radius: 0;
-        }}
-        ul, ol {{
-            margin-top: 0;
-            margin-bottom: 1em;
-            padding-left: 2em;
-        }}
-        li {{ margin-bottom: 0.25em; }}
-        li > p {{ margin-bottom: 0.5em; }}
-        .task-list-item {{
-            list-style-type: none;
-            margin-left: -1.5em;
-        }}
-        .task-list-item-checkbox {{
-            margin-right: 0.5em;
-            margin-left: 0.25em;
-            vertical-align: middle;
-        }}
-        blockquote {{
-            margin: 0 0 1em 0;
-            padding: 0 1em;
-            color: #5c635d;
-            border-left: 4px solid #c4612f;
-            background-color: #f7f4ef;
-            page-break-inside: avoid;
-        }}
-        blockquote > :first-child {{ margin-top: 0; }}
-        blockquote > :last-child {{ margin-bottom: 0; }}
-        hr {{
-            height: 1px;
-            padding: 0;
-            margin: 1.5em 0;
-            background-color: #e7e1d7;
-            border: 0;
-        }}
-        table {{
-            border-spacing: 0;
-            border-collapse: collapse;
-            margin-bottom: 1em;
-            width: 100%;
-            page-break-inside: avoid;
-        }}
-        table th, table td {{
-            padding: 6px 13px;
-            border: 1px solid #e7e1d7;
-        }}
-        table th {{
-            font-weight: 600;
-            background-color: #f7f4ef;
-        }}
-        table tr {{
-            background-color: #ffffff;
-            border-top: 1px solid #e7e1d7;
-        }}
-        table tr:nth-child(2n) {{
-            background-color: #fbf9f5;
-        }}
-        s, del {{
-            text-decoration: line-through;
-            color: #5c635d;
-        }}
-        img {{
-            max-width: 100%;
-            box-sizing: border-box;
-            page-break-inside: avoid;
-        }}
-        .mermaid {{
-            background-color: #ffffff;
-            padding: 16px;
-            margin: 16px 0;
-            border: 1px solid #e7e1d7;
-            border-radius: 8px;
-            text-align: center;
-            page-break-inside: avoid;
-        }}
-        @media print {{
-            body {{
-                max-width: none;
-                padding: 0;
-            }}
-        }}
-    </style>
+    <style>{}</style>
 </head>
 <body>
     {}
 </body>
 </html>"#,
-        title, html_content
+        title, EXPORT_DOCUMENT_STYLE, html_content
     );
 
-    // 启动无头浏览器
     let browser = Browser::new(LaunchOptions {
         headless: true,
         ..Default::default()
@@ -464,23 +396,20 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
         .new_tab()
         .map_err(|e| format!("Failed to create new tab: {}", e))?;
 
-    // 加载 HTML 内容
-    tab.navigate_to(&format!("data:text/html,{}", urlencoding::encode(&full_html)))
-        .map_err(|e| format!("Failed to navigate: {}", e))?;
+    tab.navigate_to(&format!(
+        "data:text/html,{}",
+        urlencoding::encode(&full_html)
+    ))
+    .map_err(|e| format!("Failed to navigate: {}", e))?;
 
-    // 等待页面加载完成
     tab.wait_until_navigated()
         .map_err(|e| format!("Failed to wait for navigation: {}", e))?;
-
-    // 等待额外时间以确保所有内容渲染完成
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    // 生成 PDF
     let pdf_data = tab
         .print_to_pdf(None)
         .map_err(|e| format!("Failed to generate PDF: {}", e))?;
 
-    // 写入文件
     let temp_path = format!("{}.tmp", file_path);
     fs::write(&temp_path, pdf_data).map_err(|e| format!("Failed to write PDF file: {}", e))?;
     fs::rename(&temp_path, &file_path).map_err(|e| {
@@ -491,72 +420,32 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     Ok(())
 }
 
-// 导出 Markdown（标准化格式）
-#[tauri::command]
-async fn export_markdown(file_path: String, content: String) -> Result<(), String> {
-    // 标准化 Markdown 格式
-    let formatted_content = format_markdown(&content);
-
-    // 写入文件
-    let temp_path = format!("{}.tmp", file_path);
-    fs::write(&temp_path, formatted_content)
-        .map_err(|e| format!("Failed to write Markdown file: {}", e))?;
-    fs::rename(&temp_path, &file_path).map_err(|e| {
-        let _ = fs::remove_file(&temp_path);
-        format!("Failed to save Markdown file: {}", e)
-    })?;
-
-    Ok(())
-}
-
-// 格式化 Markdown 内容
-fn format_markdown(content: &str) -> String {
-    // 简单的格式化：确保一致的换行和空行
-    let lines: Vec<&str> = content.lines().collect();
-    let mut formatted = String::new();
-    let mut prev_line_empty = false;
-
-    for line in lines {
-        let trimmed = line.trim_end();
-        let is_empty = trimmed.is_empty();
-
-        // 避免连续多个空行
-        if is_empty && prev_line_empty {
-            continue;
-        }
-
-        formatted.push_str(trimmed);
-        formatted.push('\n');
-        prev_line_empty = is_empty;
-    }
-
-    formatted
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let initial_file = initial_file_from_args();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(FileState::default())
+        .manage(FileState {
+            current_file: Mutex::new(initial_file),
+        })
         .invoke_handler(tauri::generate_handler![
             file_read,
             file_write,
+            read_image_as_data_url,
             get_current_file,
             set_current_file,
             scan_folder,
             export_html,
-            export_pdf,
-            export_markdown
+            export_pdf
         ])
         .setup(|app| {
-            // 创建托盘菜单
             let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let hide = MenuItem::with_id(app, "hide", "隐藏窗口", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
 
-            // 创建托盘图标
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
@@ -598,4 +487,37 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_markdown_file_from_launch_arguments() {
+        let path = markdown_file_arg_from_args(["LightMarkit.exe", "C:\\notes\\draft.md"]).unwrap();
+
+        assert_eq!(path, PathBuf::from("C:\\notes\\draft.md"));
+    }
+
+    #[test]
+    fn detects_markdown_extension_case_insensitively() {
+        let path =
+            markdown_file_arg_from_args(["LightMarkit.exe", "D:\\notes\\Draft.MARKDOWN"]).unwrap();
+
+        assert_eq!(path, PathBuf::from("D:\\notes\\Draft.MARKDOWN"));
+    }
+
+    #[test]
+    fn ignores_non_markdown_launch_arguments() {
+        let path = markdown_file_arg_from_args([
+            "LightMarkit.exe",
+            "--flag",
+            "C:\\notes\\image.png",
+            "C:\\notes\\draft.md",
+        ])
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("C:\\notes\\draft.md"));
+    }
 }

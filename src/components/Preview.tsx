@@ -1,48 +1,21 @@
 import { useEffect, useRef } from 'react'
-import MarkdownIt from 'markdown-it'
-import taskLists from 'markdown-it-task-lists'
+import { hydrateLocalImages, renderMarkdownToHtml } from '../utils/markdownRenderer'
 import './Preview.css'
 
 interface PreviewProps {
   content: string
+  currentFile?: string | null
   className?: string
 }
 
-// 创建 markdown-it 实例并配置 GFM 插件
-const md = new MarkdownIt({
-  html: true, // 启用 HTML 标签以支持 <img> 等标签
-  linkify: true, // 自动将 URL 转换为链接
-  typographer: true, // 启用智能引号等排版特性
-  breaks: true, // 将换行符转换为 <br>
-})
-  .use(taskLists, {
-    enabled: true,
-    label: true,
-    labelAfter: true,
-  })
-  .enable(['table', 'strikethrough']) // 启用表格和删除线支持
-
-// 添加 Mermaid 代码块处理
-const defaultFenceRenderer = md.renderer.rules.fence!
-md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-  const token = tokens[idx]
-  const code = token.content.trim()
-  const info = token.info ? token.info.trim() : ''
-
-  if (info === 'mermaid') {
-    return `<div class="mermaid">${code}</div>`
-  }
-
-  return defaultFenceRenderer(tokens, idx, options, env, self)
-}
-
-export function Preview({ content, className = '' }: PreviewProps) {
+export function Preview({ content, currentFile = null, className = '' }: PreviewProps) {
   const previewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (previewRef.current) {
-      const html = md.render(content)
+      const html = renderMarkdownToHtml(content, { currentFile })
       previewRef.current.innerHTML = html
+      void hydrateLocalImages(previewRef.current, { currentFile })
 
       // 渲染所有 Mermaid 图表（仅在浏览器环境）
       const mermaidElements = previewRef.current.querySelectorAll('.mermaid')
@@ -73,7 +46,7 @@ export function Preview({ content, className = '' }: PreviewProps) {
           })
       }
     }
-  }, [content])
+  }, [content, currentFile])
 
   return (
     <div

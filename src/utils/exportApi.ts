@@ -27,12 +27,3 @@ export async function exportPdf(
 ): Promise<void> {
   return await invoke<void>('export_pdf', { filePath, htmlContent, title })
 }
-
-/**
- * 导出 Markdown 文件（标准化格式）
- * @param filePath 导出路径
- * @param content Markdown 原始内容
- */
-export async function exportMarkdown(filePath: string, content: string): Promise<void> {
-  return await invoke<void>('export_markdown', { filePath, content })
-}

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { save } from '@tauri-apps/plugin-dialog'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
+import { scanFolder } from './utils/folderApi'
+import { fileRead, getCurrentFile } from './utils/fileApi'
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -29,7 +31,10 @@ vi.mock('./utils/fileApi', () => ({
 vi.mock('./utils/exportApi', () => ({
   exportHtml: vi.fn(),
   exportPdf: vi.fn(),
-  exportMarkdown: vi.fn(),
+}))
+
+vi.mock('./utils/folderApi', () => ({
+  scanFolder: vi.fn(),
 }))
 
 describe('App', () => {
@@ -42,7 +47,14 @@ describe('App', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(getCurrentWindow).mockReturnValue(mockWindow as unknown as ReturnType<typeof getCurrentWindow>)
+    vi.mocked(open).mockResolvedValue(null)
+    vi.mocked(save).mockResolvedValue(null)
+    vi.mocked(scanFolder).mockResolvedValue([])
+    vi.mocked(getCurrentFile).mockResolvedValue(null)
+    vi.mocked(fileRead).mockResolvedValue('')
+    vi.mocked(getCurrentWindow).mockReturnValue(
+      mockWindow as unknown as ReturnType<typeof getCurrentWindow>
+    )
   })
 
   it('不应该在顶部栏渲染应用标题', () => {
@@ -60,10 +72,22 @@ describe('App', () => {
     expect(screen.getByTestId('editor-container')).toBeInTheDocument()
   })
 
-  it('应该显示初始欢迎内容', () => {
+  it('应该默认打开空白文档', () => {
     render(<App />)
     const container = screen.getByTestId('editor-container')
-    expect(container.textContent).toContain('Welcome to LightMarkit')
+    expect(container.textContent).not.toContain('Welcome to LightMarkit')
+  })
+
+  it('应该在启动时加载当前文件内容', async () => {
+    vi.mocked(getCurrentFile).mockResolvedValue('C:\\notes\\from-shell.md')
+    vi.mocked(fileRead).mockResolvedValue('# From Shell')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(fileRead).toHaveBeenCalledWith('C:\\notes\\from-shell.md')
+      expect(screen.getByTestId('editor-container').textContent).toContain('From Shell')
+    })
   })
 
   it('应该渲染视图模式切换按钮', () => {
@@ -115,30 +139,80 @@ describe('App', () => {
 
     expect(screen.getByRole('menuitem', { name: '导出 HTML' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '导出 PDF' })).toBeVisible()
-    expect(screen.getByRole('menuitem', { name: '导出 Markdown' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: '导出 Markdown' })).not.toBeInTheDocument()
   })
 
   it('应该为导出保存框提供默认文件名', () => {
-    vi.mocked(save).mockResolvedValue(null)
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: '导出' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '导出 HTML' }))
     expect(save).toHaveBeenLastCalledWith(
-      expect.objectContaining({ defaultPath: 'Welcome to LightMarkit.html' })
+      expect.objectContaining({ defaultPath: 'LightMarkit Document.html' })
     )
 
     fireEvent.click(screen.getByRole('button', { name: '导出' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '导出 PDF' }))
     expect(save).toHaveBeenLastCalledWith(
-      expect.objectContaining({ defaultPath: 'Welcome to LightMarkit.pdf' })
+      expect.objectContaining({ defaultPath: 'LightMarkit Document.pdf' })
     )
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '导出' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '导出 Markdown' }))
-    expect(save).toHaveBeenLastCalledWith(
-      expect.objectContaining({ defaultPath: 'Welcome to LightMarkit.md' })
-    )
+  it('临时文件 Ctrl+S 应该为保存框提供默认 Markdown 文件名', async () => {
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+
+    await waitFor(() => {
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultPath: 'LightMarkit Document.md' })
+      )
+    })
+  })
+
+  it('应该保留多次打开的文件夹并显示文件夹名称', async () => {
+    vi.mocked(open)
+      .mockResolvedValueOnce('C:\\notes\\方案')
+      .mockResolvedValueOnce('D:\\work\\归档')
+    vi.mocked(scanFolder).mockImplementation(async (folderPath) => {
+      if (folderPath === 'C:\\notes\\方案') {
+        return [
+          {
+            name: '升级技术方案.md',
+            path: 'C:\\notes\\方案\\升级技术方案.md',
+            is_dir: false,
+          },
+        ]
+      }
+
+      return [
+        {
+          name: '会议记录.md',
+          path: 'D:\\work\\归档\\会议记录.md',
+          is_dir: false,
+        },
+      ]
+    })
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开文件夹' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('方案')).toBeInTheDocument()
+      expect(screen.getByText('升级技术方案.md')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开文件夹' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('方案')).toBeInTheDocument()
+      expect(screen.getByText('归档')).toBeInTheDocument()
+      expect(screen.getByText('会议记录.md')).toBeInTheDocument()
+    })
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }))
   })
 
   it('应该默认为分屏模式', () => {

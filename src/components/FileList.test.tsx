@@ -33,27 +33,35 @@ describe('FileList', () => {
       ],
     },
   ]
+  const mockFolders = [
+    {
+      name: 'test',
+      path: '/test',
+      files: mockFiles,
+    },
+  ]
 
   beforeEach(() => {
     mockOnFileSelect.mockClear()
   })
 
   it('should render file list', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
+    expect(screen.getByText('test')).toBeInTheDocument()
     expect(screen.getByText('note1.md')).toBeInTheDocument()
     expect(screen.getByText('note2.md')).toBeInTheDocument()
     expect(screen.getByText('subdir')).toBeInTheDocument()
   })
 
   it('should render empty state when no files', () => {
-    render(<FileList files={[]} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={[]} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     expect(screen.getByText('没有找到 Markdown 文件')).toBeInTheDocument()
   })
 
   it('should call onFileSelect when file is clicked', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     fireEvent.click(screen.getByText('note1.md'))
 
@@ -63,7 +71,7 @@ describe('FileList', () => {
   it('should highlight active file', () => {
     render(
       <FileList
-        files={mockFiles}
+        folders={mockFolders}
         currentFile="/test/note1.md"
         onFileSelect={mockOnFileSelect}
       />
@@ -74,7 +82,7 @@ describe('FileList', () => {
   })
 
   it('should expand/collapse directories', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     // Initially expanded - nested file should be visible
     expect(screen.getByText('note3.md')).toBeInTheDocument()
@@ -89,7 +97,7 @@ describe('FileList', () => {
   })
 
   it('should not call onFileSelect when clicking directory', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     fireEvent.click(screen.getByText('subdir'))
 
@@ -97,16 +105,28 @@ describe('FileList', () => {
   })
 
   it('should render nested files with correct structure', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     expect(screen.getByText('note3.md')).toBeInTheDocument()
   })
 
   it('should handle file selection in nested directories', () => {
-    render(<FileList files={mockFiles} currentFile={null} onFileSelect={mockOnFileSelect} />)
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
 
     fireEvent.click(screen.getByText('note3.md'))
 
     expect(mockOnFileSelect).toHaveBeenCalledWith('/test/subdir/note3.md')
+  })
+
+  it('should collapse and expand a folder root', () => {
+    render(<FileList folders={mockFolders} currentFile={null} onFileSelect={mockOnFileSelect} />)
+
+    expect(screen.getByText('note1.md')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('test'))
+    expect(screen.queryByText('note1.md')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('test'))
+    expect(screen.getByText('note1.md')).toBeInTheDocument()
   })
 })

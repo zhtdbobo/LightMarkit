@@ -343,8 +343,9 @@ body,
 .editor-preview-container {
   display: flex;
   width: 100%;
+  min-width: 0;
   height: 100%;
-  background-color: #e7e1d7;
+  background-color: #eef2f7;
 }
 
 /* 纯编辑模式 */
@@ -367,14 +368,17 @@ body,
 
 .editor-panel {
   height: 100%;
+  min-width: 0;
   overflow: hidden;
   background-color: #ffffff;
 }
 
 .preview-panel {
   height: 100%;
+  min-width: 0;
   overflow-y: auto;
-  background-color: #fbf9f5;
+  overflow-x: hidden;
+  background-color: #ffffff;
 }
 
 .app-main .editor-wrapper {

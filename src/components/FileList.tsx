@@ -3,9 +3,15 @@ import type { FileInfo } from '../utils/folderApi'
 import './FileList.css'
 
 interface FileListProps {
-  files: FileInfo[]
+  folders: FolderGroup[]
   currentFile: string | null
   onFileSelect: (filePath: string) => void
+}
+
+export interface FolderGroup {
+  name: string
+  path: string
+  files: FileInfo[]
 }
 
 interface FileItemProps {
@@ -32,12 +38,11 @@ function FileItem({ file, currentFile, onFileSelect, level }: FileItemProps) {
     <div className="file-item">
       <div
         className={`file-item-header ${isActive ? 'active' : ''}`}
-        style={{ paddingLeft: `${level * 16}px` }}
+        style={{ paddingLeft: `${12 + level * 16}px` }}
         onClick={handleClick}
+        title={file.path}
       >
-        {file.is_dir && (
-          <span className="file-icon">{isExpanded ? '📂' : '📁'}</span>
-        )}
+        {file.is_dir && <span className="file-icon">{isExpanded ? '📂' : '📁'}</span>}
         {!file.is_dir && <span className="file-icon">📄</span>}
         <span className="file-name">{file.name}</span>
       </div>
@@ -58,8 +63,48 @@ function FileItem({ file, currentFile, onFileSelect, level }: FileItemProps) {
   )
 }
 
-export function FileList({ files, currentFile, onFileSelect }: FileListProps) {
-  if (files.length === 0) {
+interface FolderItemProps {
+  folder: FolderGroup
+  currentFile: string | null
+  onFileSelect: (filePath: string) => void
+}
+
+function FolderItem({ folder, currentFile, onFileSelect }: FolderItemProps) {
+  const [isExpanded, setIsExpanded] = useState(true)
+
+  return (
+    <div className="folder-section">
+      <div
+        className="file-item-header folder-root"
+        onClick={() => setIsExpanded((expanded) => !expanded)}
+        title={folder.path}
+      >
+        <span className="file-icon">{isExpanded ? '📂' : '📁'}</span>
+        <span className="file-name">{folder.name}</span>
+      </div>
+      {isExpanded && (
+        <div className="file-children">
+          {folder.files.length > 0 ? (
+            folder.files.map((file) => (
+              <FileItem
+                key={file.path}
+                file={file}
+                currentFile={currentFile}
+                onFileSelect={onFileSelect}
+                level={1}
+              />
+            ))
+          ) : (
+            <div className="folder-empty">没有 Markdown 文件</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function FileList({ folders, currentFile, onFileSelect }: FileListProps) {
+  if (folders.length === 0) {
     return (
       <div className="file-list-empty">
         <p>没有找到 Markdown 文件</p>
@@ -70,13 +115,12 @@ export function FileList({ files, currentFile, onFileSelect }: FileListProps) {
 
   return (
     <div className="file-list" data-testid="file-list">
-      {files.map((file) => (
-        <FileItem
-          key={file.path}
-          file={file}
+      {folders.map((folder) => (
+        <FolderItem
+          key={folder.path}
+          folder={folder}
           currentFile={currentFile}
           onFileSelect={onFileSelect}
-          level={0}
         />
       ))}
     </div>

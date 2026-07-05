@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { exportHtml, exportPdf, exportMarkdown } from './exportApi'
+import { exportHtml, exportPdf } from './exportApi'
 import { invoke } from '@tauri-apps/api/core'
 
 // Mock Tauri invoke
@@ -77,38 +77,6 @@ describe('exportApi', () => {
       await expect(
         exportPdf('/invalid/path.pdf', '<p>Content</p>', 'Title')
       ).rejects.toThrow('Failed to generate PDF')
-    })
-  })
-
-  describe('exportMarkdown', () => {
-    it('should export Markdown file', async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined)
-
-      await exportMarkdown('/test/output.md', '# Test\n\nContent')
-
-      expect(invoke).toHaveBeenCalledWith('export_markdown', {
-        filePath: '/test/output.md',
-        content: '# Test\n\nContent',
-      })
-    })
-
-    it('should handle export errors', async () => {
-      vi.mocked(invoke).mockRejectedValue(new Error('Failed to write Markdown file'))
-
-      await expect(exportMarkdown('/invalid/path.md', '# Test')).rejects.toThrow(
-        'Failed to write Markdown file'
-      )
-    })
-
-    it('should handle empty content', async () => {
-      vi.mocked(invoke).mockResolvedValue(undefined)
-
-      await exportMarkdown('/test/empty.md', '')
-
-      expect(invoke).toHaveBeenCalledWith('export_markdown', {
-        filePath: '/test/empty.md',
-        content: '',
-      })
     })
   })
 })

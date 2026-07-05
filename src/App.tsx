@@ -4,12 +4,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
 import { Resizer } from './components/Resizer'
-import { FileList } from './components/FileList'
+import { FileList, type FolderGroup } from './components/FileList'
 import { fileRead, fileWrite, getCurrentFile, setCurrentFile } from './utils/fileApi'
-import { scanFolder, type FileInfo } from './utils/folderApi'
-import { exportHtml, exportPdf, exportMarkdown } from './utils/exportApi'
-import MarkdownIt from 'markdown-it'
-import taskLists from 'markdown-it-task-lists'
+import { scanFolder } from './utils/folderApi'
+import { exportHtml, exportPdf } from './utils/exportApi'
+import { renderMarkdownToHtmlWithEmbeddedImages } from './utils/markdownRenderer'
 import './App.css'
 
 type ViewMode = 'edit' | 'split' | 'preview'
@@ -25,6 +24,13 @@ function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
     return character.charCodeAt(0) < 32 ? ' ' : character
   }).join('')
+}
+
+function getPathBaseName(path: string): string {
+  const trimmedPath = path.replace(/[\\/]+$/g, '')
+  const baseName = trimmedPath.split(/[\\/]/).pop()?.trim()
+
+  return baseName || path
 }
 
 function getExportFileName(
@@ -97,44 +103,13 @@ function WindowControlIcon({ action }: { action: 'minimize' | 'maximize' | 'clos
   )
 }
 
-// 创建 Markdown 渲染器（用于导出）
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-  breaks: true,
-})
-  .use(taskLists, {
-    enabled: true,
-    label: true,
-    labelAfter: true,
-  })
-  .enable(['table', 'strikethrough'])
-
-// 添加 Mermaid 代码块处理
-const defaultFenceRenderer = md.renderer.rules.fence!
-md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-  const token = tokens[idx]
-  const code = token.content.trim()
-  const info = token.info ? token.info.trim() : ''
-
-  if (info === 'mermaid') {
-    return `<div class="mermaid">${code}</div>`
-  }
-
-  return defaultFenceRenderer(tokens, idx, options, env, self)
-}
-
 function App() {
-  const [content, setContent] = useState(
-    '# Welcome to LightMarkit\n\n开始编辑你的 Markdown 文档...\n\n## 特性\n\n- 实时语法高亮\n- Markdown 支持\n- 自动保存\n\n**粗体文本** 和 *斜体文本*\n\n```javascript\nconst hello = "world";\n```\n\n## GFM 扩展支持\n\n### 表格\n\n| 功能 | 状态 |\n| --- | --- |\n| 语法高亮 | ✅ 完成 |\n| 实时预览 | ✅ 完成 |\n\n### 任务列表\n\n- [x] 集成 CodeMirror 6\n- [x] 集成 markdown-it\n- [ ] 实现自动保存\n\n### 删除线\n\n这是~~错误的文本~~正确的文本。'
-  )
+  const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [leftWidth, setLeftWidth] = useState(50)
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [folderFiles, setFolderFiles] = useState<FileInfo[]>([])
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>([])
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
   const autoSaveTimerRef = useRef<number | null>(null)
   const headerActionsRef = useRef<HTMLElement | null>(null)
@@ -197,14 +172,42 @@ function App() {
     try {
       const selected = await open({
         directory: true,
-        multiple: false,
+        multiple: true,
       })
 
-      if (selected && typeof selected === 'string') {
-        const files = await scanFolder(selected)
-        setFolderFiles(files)
-        setCurrentFolder(selected)
-        console.log('Folder opened:', selected, 'Files:', files)
+      const selectedFolders = (Array.isArray(selected) ? selected : [selected]).filter(
+        (folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0
+      )
+
+      if (selectedFolders.length > 0) {
+        const scannedFolders = await Promise.all(
+          selectedFolders.map(async (folderPath) => {
+            const files = await scanFolder(folderPath)
+            return {
+              name: getPathBaseName(folderPath),
+              path: folderPath,
+              files,
+            }
+          })
+        )
+
+        setOpenedFolders((folders) => {
+          const nextFolders = [...folders]
+
+          scannedFolders.forEach((folder) => {
+            const existingIndex = nextFolders.findIndex((item) => item.path === folder.path)
+
+            if (existingIndex >= 0) {
+              nextFolders[existingIndex] = folder
+            } else {
+              nextFolders.push(folder)
+            }
+          })
+
+          return nextFolders
+        })
+
+        console.log('Folders opened:', scannedFolders)
       }
     } catch (error) {
       console.error('Failed to open folder:', error)
@@ -238,7 +241,7 @@ function App() {
 
       if (filePath) {
         // 渲染 Markdown 为 HTML
-        const htmlContent = md.render(content)
+        const htmlContent = await renderMarkdownToHtmlWithEmbeddedImages(content, { currentFile })
 
         // 获取文档标题（从当前文件名或内容的第一个标题）
         let title = 'LightMarkit Document'
@@ -274,7 +277,7 @@ function App() {
 
       if (filePath) {
         // 渲染 Markdown 为 HTML
-        const htmlContent = md.render(content)
+        const htmlContent = await renderMarkdownToHtmlWithEmbeddedImages(content, { currentFile })
 
         // 获取文档标题
         let title = 'LightMarkit Document'
@@ -295,32 +298,11 @@ function App() {
     }
   }, [content, currentFile])
 
-  // 导出 Markdown（标准化格式）
-  const handleExportMarkdown = useCallback(async () => {
-    try {
-      const filePath = await save({
-        defaultPath: getExportFileName(content, currentFile, 'md'),
-        filters: [
-          {
-            name: 'Markdown',
-            extensions: ['md', 'markdown'],
-          },
-        ],
-      })
-
-      if (filePath) {
-        await exportMarkdown(filePath, content)
-        console.log('Markdown exported successfully:', filePath)
-      }
-    } catch (error) {
-      console.error('Failed to export Markdown:', error)
-    }
-  }, [content, currentFile])
-
   // 另存为
   const handleSaveAsFile = useCallback(async () => {
     try {
       const selected = await save({
+        defaultPath: getExportFileName(content, currentFile, 'md'),
         filters: [
           {
             name: 'Markdown',
@@ -338,7 +320,7 @@ function App() {
     } catch (error) {
       console.error('Failed to save file:', error)
     }
-  }, [content])
+  }, [content, currentFile])
 
   // 保存文件
   const handleSaveFile = useCallback(async () => {
@@ -425,9 +407,9 @@ function App() {
       try {
         const path = await getCurrentFile()
         if (path) {
-          setCurrentFilePath(path)
           const fileContent = await fileRead(path)
           setContent(fileContent)
+          setCurrentFilePath(path)
         }
       } catch (error) {
         console.error('Failed to load current file:', error)
@@ -565,15 +547,6 @@ function App() {
               >
                 导出 PDF
               </button>
-              <button
-                type="button"
-                className="menu-item"
-                onClick={() => runToolbarAction(handleExportMarkdown)}
-                title="导出 Markdown"
-                role="menuitem"
-              >
-                导出 Markdown
-              </button>
             </div>
           </div>
         </nav>
@@ -641,11 +614,11 @@ function App() {
         </div>
       </header>
       <main className="app-main">
-        <div className={`main-content ${currentFolder ? 'with-sidebar' : ''}`}>
-          {currentFolder && (
+        <div className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}>
+          {openedFolders.length > 0 && (
             <aside className="file-sidebar">
               <FileList
-                files={folderFiles}
+                folders={openedFolders}
                 currentFile={currentFile}
                 onFileSelect={handleFileSelect}
               />
@@ -668,7 +641,7 @@ function App() {
                 className="preview-panel"
                 style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
               >
-                <Preview content={content} />
+                <Preview content={content} currentFile={currentFile} />
               </div>
             )}
           </div>
