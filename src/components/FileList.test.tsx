@@ -5,6 +5,7 @@ import type { FileInfo } from '../utils/folderApi'
 
 describe('FileList', () => {
   const mockOnFileSelect = vi.fn()
+  const mockOnFolderClose = vi.fn()
 
   const mockFiles: FileInfo[] = [
     {
@@ -43,6 +44,7 @@ describe('FileList', () => {
 
   beforeEach(() => {
     mockOnFileSelect.mockClear()
+    mockOnFolderClose.mockClear()
   })
 
   it('should render file list', () => {
@@ -128,5 +130,21 @@ describe('FileList', () => {
 
     fireEvent.click(screen.getByText('test'))
     expect(screen.getByText('note1.md')).toBeInTheDocument()
+  })
+
+  it('should close a folder root without selecting files', () => {
+    render(
+      <FileList
+        folders={mockFolders}
+        currentFile={null}
+        onFileSelect={mockOnFileSelect}
+        onFolderClose={mockOnFolderClose}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭文件夹 test' }))
+
+    expect(mockOnFolderClose).toHaveBeenCalledWith('/test')
+    expect(mockOnFileSelect).not.toHaveBeenCalled()
   })
 })

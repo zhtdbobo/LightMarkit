@@ -6,6 +6,7 @@ interface FileListProps {
   folders: FolderGroup[]
   currentFile: string | null
   onFileSelect: (filePath: string) => void
+  onFolderClose?: (folderPath: string) => void
 }
 
 export interface FolderGroup {
@@ -38,12 +39,16 @@ function FileItem({ file, currentFile, onFileSelect, level }: FileItemProps) {
     <div className="file-item">
       <div
         className={`file-item-header ${isActive ? 'active' : ''}`}
-        style={{ paddingLeft: `${12 + level * 16}px` }}
+        style={{ paddingLeft: `${8 + level * 8}px` }}
         onClick={handleClick}
         title={file.path}
       >
-        {file.is_dir && <span className="file-icon">{isExpanded ? '📂' : '📁'}</span>}
-        {!file.is_dir && <span className="file-icon">📄</span>}
+        <span
+          className={`file-icon ${file.is_dir ? 'folder' : 'document'} ${
+            file.is_dir && isExpanded ? 'expanded' : ''
+          }`}
+          aria-hidden="true"
+        />
         <span className="file-name">{file.name}</span>
       </div>
       {file.is_dir && isExpanded && file.children && (
@@ -67,9 +72,10 @@ interface FolderItemProps {
   folder: FolderGroup
   currentFile: string | null
   onFileSelect: (filePath: string) => void
+  onFolderClose?: (folderPath: string) => void
 }
 
-function FolderItem({ folder, currentFile, onFileSelect }: FolderItemProps) {
+function FolderItem({ folder, currentFile, onFileSelect, onFolderClose }: FolderItemProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   return (
@@ -79,8 +85,22 @@ function FolderItem({ folder, currentFile, onFileSelect }: FolderItemProps) {
         onClick={() => setIsExpanded((expanded) => !expanded)}
         title={folder.path}
       >
-        <span className="file-icon">{isExpanded ? '📂' : '📁'}</span>
+        <span className={`file-icon folder ${isExpanded ? 'expanded' : ''}`} aria-hidden="true" />
         <span className="file-name">{folder.name}</span>
+        {onFolderClose && (
+          <button
+            type="button"
+            className="folder-close-button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onFolderClose(folder.path)
+            }}
+            title="关闭文件夹"
+            aria-label={`关闭文件夹 ${folder.name}`}
+          >
+            x
+          </button>
+        )}
       </div>
       {isExpanded && (
         <div className="file-children">
@@ -103,12 +123,12 @@ function FolderItem({ folder, currentFile, onFileSelect }: FolderItemProps) {
   )
 }
 
-export function FileList({ folders, currentFile, onFileSelect }: FileListProps) {
+export function FileList({ folders, currentFile, onFileSelect, onFolderClose }: FileListProps) {
   if (folders.length === 0) {
     return (
       <div className="file-list-empty">
         <p>没有找到 Markdown 文件</p>
-        <p className="hint">使用「打开文件夹」按钮选择一个文件夹</p>
+        <p className="hint">使用“打开文件夹”选择一个文件夹</p>
       </div>
     )
   }
@@ -121,6 +141,7 @@ export function FileList({ folders, currentFile, onFileSelect }: FileListProps) 
           folder={folder}
           currentFile={currentFile}
           onFileSelect={onFileSelect}
+          onFolderClose={onFolderClose}
         />
       ))}
     </div>

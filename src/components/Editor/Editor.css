@@ -8,10 +8,12 @@
 
 .editor-wrapper .cm-editor {
   height: 100%;
+  min-height: 0;
   outline: none;
 }
 
 .editor-wrapper .cm-scroller {
+  height: 100%;
   overflow: auto;
   font-family: inherit;
 }

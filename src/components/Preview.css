@@ -1,18 +1,24 @@
 .preview-container {
+  height: 100%;
   padding: 2rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  color: #222222;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.6;
-  color: #1f2937;
   background-color: #ffffff;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overflow-wrap: anywhere;
-  height: 100%;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
-/* 标题样式 */
+.preview-container * {
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
 .preview-container h1,
 .preview-container h2,
 .preview-container h3,
@@ -21,98 +27,91 @@
 .preview-container h6 {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
+  color: #222222;
   font-weight: 600;
   line-height: 1.25;
-  color: #1d4ed8;
 }
 
 .preview-container h1 {
-  font-size: 2em;
-  border-bottom: 1px solid #dbeafe;
   padding-bottom: 0.3em;
+  font-size: 2em;
+  border-bottom: 1px solid #e5e5e5;
 }
 
 .preview-container h2 {
-  font-size: 1.5em;
-  color: #2563eb;
-  border-bottom: 1px solid #dbeafe;
   padding-bottom: 0.3em;
+  font-size: 1.5em;
+  border-bottom: 1px solid #e5e5e5;
 }
 
 .preview-container h3 {
   font-size: 1.25em;
-  color: #0f766e;
 }
 
 .preview-container h4 {
   font-size: 1em;
-  color: #7c3aed;
 }
 
 .preview-container h5 {
   font-size: 0.875em;
-  color: #be123c;
 }
 
 .preview-container h6 {
+  color: #666666;
   font-size: 0.85em;
-  color: #64748b;
 }
 
-/* 段落和文本 */
 .preview-container p {
   margin-top: 0;
   margin-bottom: 1em;
 }
 
 .preview-container strong {
+  color: #111111;
   font-weight: 600;
-  color: #111827;
 }
 
 .preview-container em {
+  color: inherit;
   font-style: italic;
-  color: #7c3aed;
 }
 
-/* 链接 */
 .preview-container a {
-  color: #0b6bcb;
+  color: #111111;
   text-decoration: none;
 }
 
 .preview-container a:hover {
-  color: #084c94;
+  color: #000000;
   text-decoration: underline;
 }
 
-/* 代码 */
 .preview-container code {
   padding: 0.2em 0.4em;
   margin: 0;
-  font-size: 85%;
-  color: #9a3412;
-  background-color: #fff7ed;
-  border-radius: 3px;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  color: #222222;
   font-family:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 85%;
+  word-break: break-word;
+  background-color: #f5f5f5;
+  border-radius: 3px;
 }
 
 .preview-container pre {
-  padding: 1em;
   max-width: 100%;
+  padding: 1em;
   overflow-x: hidden;
   overflow-y: auto;
   font-size: 85%;
   line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   word-break: break-word;
-  background-color: #fff8e8;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background-color: #f7f7f7;
+  border: 1px solid #dddddd;
   border-radius: 6px;
-  border: 1px solid #fde68a;
 }
 
 .preview-container pre code {
@@ -123,12 +122,11 @@
   border-radius: 0;
 }
 
-/* 列表 */
 .preview-container ul,
 .preview-container ol {
+  padding-left: 2em;
   margin-top: 0;
   margin-bottom: 1em;
-  padding-left: 2em;
 }
 
 .preview-container li {
@@ -136,7 +134,7 @@
 }
 
 .preview-container li::marker {
-  color: #2563eb;
+  color: #222222;
   font-weight: 600;
 }
 
@@ -144,26 +142,24 @@
   margin-bottom: 0.5em;
 }
 
-/* 任务列表 */
 .preview-container .task-list-item {
-  list-style-type: none;
   margin-left: -1.5em;
+  list-style-type: none;
 }
 
 .preview-container .task-list-item-checkbox {
   margin-right: 0.5em;
   margin-left: 0.25em;
-  accent-color: #0f766e;
   vertical-align: middle;
+  accent-color: #222222;
 }
 
-/* 引用 */
 .preview-container blockquote {
-  margin: 0 0 1em 0;
   padding: 0 1em;
-  color: #475569;
-  border-left: 4px solid #14b8a6;
-  background-color: #f8fafc;
+  margin: 0 0 1em 0;
+  color: #555555;
+  background-color: #f7f7f7;
+  border-left: 4px solid #dddddd;
 }
 
 .preview-container blockquote > :first-child {
@@ -174,73 +170,71 @@
   margin-bottom: 0;
 }
 
-/* 分隔线 */
 .preview-container hr {
   height: 1px;
   padding: 0;
   margin: 1.5em 0;
-  background-color: #dbeafe;
+  background-color: #e5e5e5;
   border: 0;
 }
 
-/* 表格 */
 .preview-container table {
+  width: 100%;
+  margin-bottom: 1em;
+  overflow: auto;
   border-spacing: 0;
   border-collapse: collapse;
-  margin-bottom: 1em;
-  width: 100%;
-  overflow: auto;
 }
 
 .preview-container table th,
 .preview-container table td {
   padding: 6px 13px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #dddddd;
 }
 
 .preview-container table th {
+  color: #222222;
   font-weight: 600;
-  color: #334155;
-  background-color: #f8fafc;
+  background-color: #f7f7f7;
 }
 
 .preview-container table tr {
   background-color: #ffffff;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #dddddd;
 }
 
 .preview-container table tr:nth-child(2n) {
-  background-color: #f9fafb;
+  background-color: #fafafa;
 }
 
-/* 删除线 */
 .preview-container s,
 .preview-container del {
+  color: #666666;
   text-decoration: line-through;
-  color: #9f1239;
 }
 
-/* 图片 */
 .preview-container img {
-  max-width: 100%;
   box-sizing: border-box;
+  max-width: 100%;
   background-color: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #dddddd;
   border-radius: 6px;
 }
 
-/* Mermaid 图表样式 */
 .preview-container .mermaid {
-  background-color: #f8fafc;
   padding: 16px;
   margin: 16px 0;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  text-align: center;
   overflow-x: auto;
+  text-align: center;
+  background-color: #ffffff;
+  border: 1px solid #dddddd;
+  border-radius: 8px;
 }
 
 .preview-container .mermaid svg {
   max-width: 100%;
   height: auto;
+  background-color: #ffffff !important;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }

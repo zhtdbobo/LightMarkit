@@ -209,6 +209,47 @@ export function renderMarkdownToHtml(content: string, options: MarkdownRenderOpt
   return md.render(content, { currentFile: options.currentFile })
 }
 
+export async function renderMermaidDiagrams(root: ParentNode): Promise<void> {
+  const mermaidElements = Array.from(root.querySelectorAll<HTMLElement>('.mermaid'))
+
+  if (mermaidElements.length === 0 || typeof window === 'undefined') {
+    return
+  }
+
+  const mermaidModule = await import('mermaid')
+  const mermaid = mermaidModule.default
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    securityLevel: 'loose',
+  })
+
+  await Promise.all(
+    mermaidElements.map(async (element, index) => {
+      const graphDefinition = element.textContent?.trim() ?? ''
+
+      if (!graphDefinition || element.querySelector('svg')) {
+        return
+      }
+
+      const id = `mermaid-${Date.now()}-${index}`
+      const { svg, bindFunctions } = await mermaid.render(id, graphDefinition)
+
+      element.innerHTML = svg
+      element.querySelectorAll<SVGTextElement>('text').forEach((textElement) => {
+        const hasExplicitFill = textElement.hasAttribute('fill')
+        const hasStyleFill = /(?:^|;)\s*fill\s*:/.test(textElement.getAttribute('style') ?? '')
+
+        if (!hasExplicitFill && !hasStyleFill) {
+          textElement.setAttribute('fill', 'currentColor')
+        }
+      })
+      bindFunctions?.(element)
+    })
+  )
+}
+
 export async function hydrateLocalImages(
   root: ParentNode,
   options: MarkdownRenderOptions = {}
@@ -251,6 +292,18 @@ export async function renderMarkdownToHtmlWithEmbeddedImages(
   const wrapper = document.createElement('div')
   wrapper.innerHTML = renderMarkdownToHtml(content, options)
   await hydrateLocalImages(wrapper, options)
+
+  return wrapper.innerHTML
+}
+
+export async function renderMarkdownToExportHtml(
+  content: string,
+  options: MarkdownRenderOptions = {}
+): Promise<string> {
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = renderMarkdownToHtml(content, options)
+  await hydrateLocalImages(wrapper, options)
+  await renderMermaidDiagrams(wrapper)
 
   return wrapper.innerHTML
 }

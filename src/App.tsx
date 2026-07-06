@@ -8,7 +8,7 @@ import { FileList, type FolderGroup } from './components/FileList'
 import { fileRead, fileWrite, getCurrentFile, setCurrentFile } from './utils/fileApi'
 import { scanFolder } from './utils/folderApi'
 import { exportHtml, exportPdf } from './utils/exportApi'
-import { renderMarkdownToHtmlWithEmbeddedImages } from './utils/markdownRenderer'
+import { renderMarkdownToExportHtml } from './utils/markdownRenderer'
 import './App.css'
 
 type ViewMode = 'edit' | 'split' | 'preview'
@@ -19,6 +19,8 @@ type ExportExtension = 'html' | 'pdf' | 'md'
 const FALLBACK_DOCUMENT_NAME = 'LightMarkit Document'
 const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i
 const INVALID_FILE_NAME_CHARACTERS = /[<>:"/\\|?*]/g
+const MIN_SIDEBAR_WIDTH = 180
+const MAX_SIDEBAR_WIDTH = 520
 
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
@@ -110,9 +112,13 @@ function App() {
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>([])
+  const [sidebarWidth, setSidebarWidth] = useState(250)
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
   const autoSaveTimerRef = useRef<number | null>(null)
   const headerActionsRef = useRef<HTMLElement | null>(null)
+  const editorPanelRef = useRef<HTMLDivElement | null>(null)
+  const previewPanelRef = useRef<HTMLDivElement | null>(null)
+  const isSyncingScrollRef = useRef(false)
 
   const runToolbarAction = useCallback((action: () => void | Promise<void>) => {
     setOpenMenu(null)
@@ -226,6 +232,37 @@ function App() {
     }
   }, [])
 
+  const handleFolderClose = useCallback((folderPath: string) => {
+    setOpenedFolders((folders) => folders.filter((folder) => folder.path !== folderPath))
+  }, [])
+
+  const handleSidebarResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+
+      const startX = event.clientX
+      const startWidth = sidebarWidth
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextWidth = startWidth + moveEvent.clientX - startX
+        setSidebarWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, nextWidth)))
+      }
+
+      const handlePointerUp = () => {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+    },
+    [sidebarWidth]
+  )
+
   // 导出 HTML
   const handleExportHtml = useCallback(async () => {
     try {
@@ -241,7 +278,7 @@ function App() {
 
       if (filePath) {
         // 渲染 Markdown 为 HTML
-        const htmlContent = await renderMarkdownToHtmlWithEmbeddedImages(content, { currentFile })
+        const htmlContent = await renderMarkdownToExportHtml(content, { currentFile })
 
         // 获取文档标题（从当前文件名或内容的第一个标题）
         let title = 'LightMarkit Document'
@@ -277,7 +314,7 @@ function App() {
 
       if (filePath) {
         // 渲染 Markdown 为 HTML
-        const htmlContent = await renderMarkdownToHtmlWithEmbeddedImages(content, { currentFile })
+        const htmlContent = await renderMarkdownToExportHtml(content, { currentFile })
 
         // 获取文档标题
         let title = 'LightMarkit Document'
@@ -480,6 +517,67 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (viewMode !== 'edit') {
+      return
+    }
+
+    previewPanelRef.current = null
+  }, [viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'preview') {
+      return
+    }
+
+    editorPanelRef.current = null
+  }, [viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'split') {
+      return
+    }
+
+    const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
+    const previewScroller =
+      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+
+    if (!editorScroller || !previewScroller) {
+      return
+    }
+
+    const syncScroll = (source: HTMLElement, target: HTMLElement) => {
+      if (isSyncingScrollRef.current) {
+        return
+      }
+
+      const sourceScrollable = source.scrollHeight - source.clientHeight
+      const targetScrollable = target.scrollHeight - target.clientHeight
+
+      if (sourceScrollable <= 0 || targetScrollable <= 0) {
+        return
+      }
+
+      isSyncingScrollRef.current = true
+      target.scrollTop = (source.scrollTop / sourceScrollable) * targetScrollable
+
+      window.requestAnimationFrame(() => {
+        isSyncingScrollRef.current = false
+      })
+    }
+
+    const handleEditorScroll = () => syncScroll(editorScroller, previewScroller)
+    const handlePreviewScroll = () => syncScroll(previewScroller, editorScroller)
+
+    editorScroller.addEventListener('scroll', handleEditorScroll, { passive: true })
+    previewScroller.addEventListener('scroll', handlePreviewScroll, { passive: true })
+
+    return () => {
+      editorScroller.removeEventListener('scroll', handleEditorScroll)
+      previewScroller.removeEventListener('scroll', handlePreviewScroll)
+    }
+  }, [viewMode, content])
+
   return (
     <div className="app-container">
       <header className="app-header" ref={headerActionsRef} onPointerDown={handleDragWindow}>
@@ -614,19 +712,36 @@ function App() {
         </div>
       </header>
       <main className="app-main">
-        <div className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}>
+        <div
+          className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
+          style={
+            openedFolders.length > 0
+              ? ({ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties)
+              : undefined
+          }
+        >
           {openedFolders.length > 0 && (
             <aside className="file-sidebar">
               <FileList
                 folders={openedFolders}
                 currentFile={currentFile}
                 onFileSelect={handleFileSelect}
+                onFolderClose={handleFolderClose}
+              />
+              <div
+                className="sidebar-resizer"
+                onPointerDown={handleSidebarResizeStart}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整文件夹栏宽度"
+                title="拖动调整文件夹栏宽度"
               />
             </aside>
           )}
           <div className={`editor-preview-container mode-${viewMode}`}>
             {(viewMode === 'edit' || viewMode === 'split') && (
               <div
+                ref={editorPanelRef}
                 className="editor-panel"
                 style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
               >
@@ -638,6 +753,7 @@ function App() {
             )}
             {(viewMode === 'preview' || viewMode === 'split') && (
               <div
+                ref={previewPanelRef}
                 className="preview-panel"
                 style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
               >

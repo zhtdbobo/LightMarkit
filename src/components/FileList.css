@@ -1,5 +1,6 @@
 .file-list {
   height: 100%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background-color: var(--bg-secondary);
@@ -25,7 +26,9 @@
 .file-item-header {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  gap: 4px;
+  min-height: 34px;
+  padding: 4px 8px;
   cursor: pointer;
   transition: background-color 0.15s;
 }
@@ -40,7 +43,7 @@
 }
 
 .file-item-header.folder-root {
-  padding-left: 12px;
+  padding-left: 8px;
   color: var(--text-primary);
   font-weight: 600;
   border-bottom: 1px solid var(--border-color);
@@ -52,9 +55,36 @@
 
 .file-icon {
   flex: 0 0 auto;
-  width: 18px;
-  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 18px;
   font-size: 1rem;
+}
+
+.file-icon.folder {
+  color: var(--text-muted);
+  font-size: 0;
+}
+
+.file-icon.folder::before {
+  width: 0;
+  height: 0;
+  content: '';
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transform-origin: 45% 50%;
+  transition: transform 0.12s ease;
+}
+
+.file-icon.folder.expanded::before {
+  transform: rotate(90deg);
+}
+
+.file-icon.document {
+  width: 4px;
 }
 
 .file-name {
@@ -66,8 +96,32 @@
   font-size: 0.875rem;
 }
 
+.folder-close-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-muted);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  background-color: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.folder-close-button:hover,
+.folder-close-button:focus-visible {
+  color: var(--text-primary);
+  background-color: var(--hover-bg);
+  outline: none;
+}
+
 .folder-empty {
-  padding: 6px 12px 6px 38px;
+  padding: 6px 12px 6px 20px;
   color: var(--text-muted);
   font-size: 0.8125rem;
 }

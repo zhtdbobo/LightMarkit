@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readImageAsDataUrl } from './imageApi'
 import {
   hydrateLocalImages,
+  renderMarkdownToExportHtml,
   renderMarkdownToHtml,
   renderMarkdownToHtmlWithEmbeddedImages,
   resolveLocalImagePath,
@@ -9,6 +10,16 @@ import {
 
 vi.mock('./imageApi', () => ({
   readImageAsDataUrl: vi.fn(),
+}))
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({
+      svg: '<svg data-testid="rendered-mermaid"><rect fill="#ff8800" stroke="#0088ff"></rect><text style="color:#ffffff;fill:#ffffff">Flow</text></svg>',
+      bindFunctions: vi.fn(),
+    })),
+  },
 }))
 
 describe('markdownRenderer', () => {
@@ -97,5 +108,16 @@ describe('markdownRenderer', () => {
     expect(readImageAsDataUrl).toHaveBeenCalledWith('D:\\notes\\images\\export.png')
     expect(html).toContain('data:image/png;base64,export')
     expect(html).not.toContain('data-local-src')
+  })
+
+  it('should render Mermaid diagrams before exporting HTML', async () => {
+    const html = await renderMarkdownToExportHtml(
+      ['```mermaid', 'flowchart TD', '  A --> B', '```'].join('\n')
+    )
+
+    expect(html).toContain('data-testid="rendered-mermaid"')
+    expect(html).toContain('fill="#ff8800"')
+    expect(html).toContain('color:#ffffff')
+    expect(html).not.toContain('flowchart TD')
   })
 })

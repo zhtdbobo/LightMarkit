@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use headless_chrome::{Browser, LaunchOptions};
+use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::fs;
@@ -182,43 +182,49 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 1.6;
-    color: #1f2937;
+    color: #222222;
     background-color: #ffffff;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+}
+* {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
 }
 h1, h2, h3, h4, h5, h6 {
     margin-top: 1.5em;
     margin-bottom: 0.5em;
     font-weight: 600;
     line-height: 1.25;
-    color: #1d4ed8;
+    color: #222222;
     page-break-after: avoid;
 }
 h1 {
     font-size: 2em;
-    border-bottom: 1px solid #dbeafe;
+    border-bottom: 1px solid #e5e5e5;
     padding-bottom: 0.3em;
 }
 h2 {
     font-size: 1.5em;
-    color: #2563eb;
-    border-bottom: 1px solid #dbeafe;
+    color: #222222;
+    border-bottom: 1px solid #e5e5e5;
     padding-bottom: 0.3em;
 }
-h3 { font-size: 1.25em; color: #0f766e; }
-h4 { font-size: 1em; color: #7c3aed; }
-h5 { font-size: 0.875em; color: #be123c; }
-h6 { font-size: 0.85em; color: #64748b; }
+h3 { font-size: 1.25em; color: #222222; }
+h4 { font-size: 1em; color: #222222; }
+h5 { font-size: 0.875em; color: #222222; }
+h6 { font-size: 0.85em; color: #666666; }
 p { margin-top: 0; margin-bottom: 1em; }
-strong { font-weight: 600; color: #111827; }
-em { font-style: italic; color: #7c3aed; }
-a { color: #0b6bcb; text-decoration: none; }
-a:hover { color: #084c94; text-decoration: underline; }
+strong { font-weight: 600; color: #111111; }
+em { font-style: italic; color: inherit; }
+a { color: #111111; text-decoration: none; }
+a:hover { color: #000000; text-decoration: underline; }
 code {
     padding: 0.2em 0.4em;
     margin: 0;
     font-size: 85%;
-    color: #9a3412;
-    background-color: #fff7ed;
+    color: #222222;
+    background-color: #f5f5f5;
     border-radius: 3px;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -234,9 +240,9 @@ pre {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
-    background-color: #fff8e8;
+    background-color: #f7f7f7;
     border-radius: 6px;
-    border: 1px solid #fde68a;
+    border: 1px solid #dddddd;
     page-break-inside: avoid;
 }
 pre code {
@@ -252,7 +258,7 @@ ul, ol {
     padding-left: 2em;
 }
 li { margin-bottom: 0.25em; }
-li::marker { color: #2563eb; font-weight: 600; }
+li::marker { color: #222222; font-weight: 600; }
 li > p { margin-bottom: 0.5em; }
 .task-list-item {
     list-style-type: none;
@@ -261,15 +267,15 @@ li > p { margin-bottom: 0.5em; }
 .task-list-item-checkbox {
     margin-right: 0.5em;
     margin-left: 0.25em;
-    accent-color: #0f766e;
+    accent-color: #222222;
     vertical-align: middle;
 }
 blockquote {
     margin: 0 0 1em 0;
     padding: 0 1em;
-    color: #475569;
-    border-left: 4px solid #14b8a6;
-    background-color: #f8fafc;
+    color: #555555;
+    border-left: 4px solid #dddddd;
+    background-color: #f7f7f7;
     page-break-inside: avoid;
 }
 blockquote > :first-child { margin-top: 0; }
@@ -278,7 +284,7 @@ hr {
     height: 1px;
     padding: 0;
     margin: 1.5em 0;
-    background-color: #dbeafe;
+    background-color: #e5e5e5;
     border: 0;
 }
 table {
@@ -291,35 +297,35 @@ table {
 }
 table th, table td {
     padding: 6px 13px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #dddddd;
 }
 table th {
     font-weight: 600;
-    color: #334155;
-    background-color: #f8fafc;
+    color: #222222;
+    background-color: #f7f7f7;
 }
 table tr {
     background-color: #ffffff;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid #dddddd;
 }
-table tr:nth-child(2n) { background-color: #f9fafb; }
+table tr:nth-child(2n) { background-color: #fafafa; }
 s, del {
     text-decoration: line-through;
-    color: #9f1239;
+    color: #666666;
 }
 img {
     max-width: 100%;
     box-sizing: border-box;
     background-color: #ffffff;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #dddddd;
     border-radius: 6px;
     page-break-inside: avoid;
 }
 .mermaid {
-    background-color: #f8fafc;
+    background-color: #ffffff;
     padding: 16px;
     margin: 16px 0;
-    border: 1px solid #dbeafe;
+    border: 1px solid #dddddd;
     border-radius: 8px;
     text-align: center;
     overflow-x: auto;
@@ -328,6 +334,9 @@ img {
 .mermaid svg {
     max-width: 100%;
     height: auto;
+    background-color: #ffffff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
 }
 @media print {
     body {
@@ -399,10 +408,6 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{}</title>
     <style>{}</style>
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-        mermaid.initialize({{ startOnLoad: true }});
-    </script>
 </head>
 <body>
     {}
@@ -495,7 +500,10 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
         )
         .map_err(|e| format!("Failed to wait for images: {}", e))?;
 
-        tab.print_to_pdf(None)
+        tab.print_to_pdf(Some(PrintToPdfOptions {
+            print_background: Some(true),
+            ..Default::default()
+        }))
             .map_err(|e| format!("Failed to generate PDF: {}", e))
     })();
 
