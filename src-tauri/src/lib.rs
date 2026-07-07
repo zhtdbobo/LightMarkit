@@ -564,14 +564,24 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
                     if (isScalable && remaining >= PAGE_HEIGHT * 0.55) {
                         const targetHeight = remaining - 10;
                         el.style.maxHeight = targetHeight + 'px';
+                        el.style.overflow = 'hidden';
                         if (el.tagName === 'IMG') {
                             el.style.objectFit = 'scale-down';
-                            el.style.width = 'auto';
+                            el.style.height = 'auto';
                         } else {
                             const svg = el.querySelector('svg');
                             if (svg) {
-                                svg.style.maxHeight = (targetHeight - 32) + 'px';
-                                svg.style.width = 'auto';
+                                const svgH = svg.getBoundingClientRect().height || parseFloat(svg.getAttribute('height')) || height;
+                                const svgW = svg.getBoundingClientRect().width || parseFloat(svg.getAttribute('width')) || el.offsetWidth;
+                                const maxSvgH = targetHeight - 32;
+                                if (svgH > maxSvgH) {
+                                    const scale = maxSvgH / svgH;
+                                    svg.setAttribute('height', maxSvgH);
+                                    svg.setAttribute('width', svgW * scale);
+                                    svg.style.height = maxSvgH + 'px';
+                                    svg.style.width = (svgW * scale) + 'px';
+                                    svg.style.maxWidth = '100%';
+                                }
                             }
                         }
                     } else if (posInPage > PAGE_HEIGHT * 0.25) {
