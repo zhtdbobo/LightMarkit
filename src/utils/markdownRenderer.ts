@@ -158,7 +158,7 @@ export function resolveLocalImagePath(src: string | null, currentFile?: string |
 
 // 创建 markdown-it 实例并配置 GFM 插件
 const md = new MarkdownIt({
-  html: true,
+  html: false,
   linkify: true,
   typographer: true,
   breaks: true,
@@ -222,7 +222,7 @@ export async function renderMermaidDiagrams(root: ParentNode): Promise<void> {
   mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
   })
 
   await Promise.all(

@@ -18,6 +18,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     toggleMaximize: vi.fn(),
     close: vi.fn(),
     startDragging: vi.fn(),
+    onCloseRequested: vi.fn().mockResolvedValue(vi.fn()),
   })),
 }))
 
@@ -43,6 +44,7 @@ describe('App', () => {
     toggleMaximize: vi.fn(),
     close: vi.fn(),
     startDragging: vi.fn(),
+    onCloseRequested: vi.fn().mockResolvedValue(vi.fn()),
   }
 
   beforeEach(() => {

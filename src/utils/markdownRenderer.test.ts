@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readImageAsDataUrl } from './imageApi'
 import {
   hydrateLocalImages,
+  renderMermaidDiagrams,
   renderMarkdownToExportHtml,
   renderMarkdownToHtml,
   renderMarkdownToHtmlWithEmbeddedImages,
@@ -73,6 +74,17 @@ describe('markdownRenderer', () => {
     expect(image).not.toHaveAttribute('data-local-src')
   })
 
+  it('should escape raw HTML from Markdown content', () => {
+    const html = renderMarkdownToHtml('<script>alert("xss")</script><img src=x onerror=alert(1)>')
+    const wrapper = document.createElement('div')
+    wrapper.innerHTML = html
+
+    expect(wrapper.querySelector('script')).toBeNull()
+    expect(wrapper.querySelector('img')).toBeNull()
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).toContain('&lt;img')
+  })
+
   it('应该把 Markdown 本地图片替换为 data URL', async () => {
     vi.mocked(readImageAsDataUrl).mockResolvedValue('data:image/png;base64,abc')
     const wrapper = document.createElement('div')
@@ -119,5 +131,19 @@ describe('markdownRenderer', () => {
     expect(html).toContain('fill="#ff8800"')
     expect(html).toContain('color:#ffffff')
     expect(html).not.toContain('flowchart TD')
+  })
+
+  it('should initialize Mermaid in strict security mode', async () => {
+    const mermaidModule = await import('mermaid')
+    const wrapper = document.createElement('div')
+    wrapper.innerHTML = renderMarkdownToHtml(
+      ['```mermaid', 'flowchart TD', '  A --> B', '```'].join('\n')
+    )
+
+    await renderMermaidDiagrams(wrapper)
+
+    expect(mermaidModule.default.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ securityLevel: 'strict' })
+    )
   })
 })

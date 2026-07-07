@@ -119,8 +119,9 @@ function App() {
   const editorPanelRef = useRef<HTMLDivElement | null>(null)
   const previewPanelRef = useRef<HTMLDivElement | null>(null)
   const isSyncingScrollRef = useRef(false)
+  const isProgrammaticCloseRef = useRef(false)
 
-  const runToolbarAction = useCallback((action: () => void | Promise<void>) => {
+  const runToolbarAction = useCallback((action: () => unknown | Promise<unknown>) => {
     setOpenMenu(null)
     void action()
   }, [])
@@ -336,7 +337,7 @@ function App() {
   }, [content, currentFile])
 
   // 另存为
-  const handleSaveAsFile = useCallback(async () => {
+  const handleSaveAsFile = useCallback(async (): Promise<boolean> => {
     try {
       const selected = await save({
         defaultPath: getExportFileName(content, currentFile, 'md'),
@@ -353,14 +354,18 @@ function App() {
         setCurrentFilePath(selected)
         await setCurrentFile(selected)
         console.log('File saved as:', selected)
+        return true
       }
+
+      return false
     } catch (error) {
       console.error('Failed to save file:', error)
+      return false
     }
   }, [content, currentFile])
 
   // 保存文件
-  const handleSaveFile = useCallback(async () => {
+  const handleSaveFile = useCallback(async (): Promise<boolean> => {
     if (!currentFile) {
       // 如果没有当前文件，则另存为
       return handleSaveAsFile()
@@ -376,19 +381,51 @@ function App() {
       setTimeout(() => {
         setSaveStatus('idle')
       }, 2000)
+      return true
     } catch (error) {
       console.error('Failed to save file:', error)
       setSaveStatus('idle')
+      return false
     }
   }, [currentFile, content, handleSaveAsFile])
 
   const handleCloseWindow = useCallback(async () => {
-    if (currentFile) {
-      await handleSaveFile()
+    if (!currentFile && content.trim().length > 0) {
+      const saved = await handleSaveAsFile()
+      if (!saved) {
+        return
+      }
+    } else if (currentFile) {
+      const saved = await handleSaveFile()
+      if (!saved) {
+        return
+      }
     }
 
+    isProgrammaticCloseRef.current = true
     await getCurrentWindow().close()
-  }, [currentFile, handleSaveFile])
+  }, [content, currentFile, handleSaveAsFile, handleSaveFile])
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        if (isProgrammaticCloseRef.current) {
+          return
+        }
+
+        event.preventDefault()
+        void handleCloseWindow()
+      })
+      .then((unsubscribe) => {
+        unlisten = unsubscribe
+      })
+
+    return () => {
+      unlisten?.()
+    }
+  }, [handleCloseWindow])
 
   // 自动保存：内容变更后 500ms 防抖触发
   useEffect(() => {

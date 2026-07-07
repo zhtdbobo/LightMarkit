@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,15 @@ struct FileInfo {
     children: Option<Vec<FileInfo>>,
 }
 
+const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_SCAN_DEPTH: usize = 20;
+const MAX_SCANNED_MARKDOWN_FILES: usize = 5000;
+const PDF_PAPER_WIDTH_INCHES: f64 = 8.27;
+const PDF_PAPER_HEIGHT_INCHES: f64 = 11.69;
+const PDF_MARGIN_INCHES: f64 = 0.4;
+const PDF_VIEWPORT_WIDTH: u32 = 717;
+const PDF_VIEWPORT_HEIGHT: u32 = 1046;
+
 fn is_markdown_file_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -32,6 +42,50 @@ fn is_markdown_file_path(path: &Path) -> bool {
             extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
         })
         .unwrap_or(false)
+}
+
+fn has_extension(path: &Path, allowed_extensions: &[&str]) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            allowed_extensions
+                .iter()
+                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+        })
+        .unwrap_or(false)
+}
+
+fn ensure_markdown_file_path(path: &Path) -> Result<(), String> {
+    if is_markdown_file_path(path) {
+        Ok(())
+    } else {
+        Err("Only Markdown files are supported".to_string())
+    }
+}
+
+fn ensure_export_file_path(path: &Path, allowed_extensions: &[&str]) -> Result<(), String> {
+    if has_extension(path, allowed_extensions) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Export path must end with .{}",
+            allowed_extensions.join(" or .")
+        ))
+    }
+}
+
+fn escape_html_text(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|character| match character {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect::<Vec<_>>(),
+            '>' => "&gt;".chars().collect::<Vec<_>>(),
+            '"' => "&quot;".chars().collect::<Vec<_>>(),
+            '\'' => "&#39;".chars().collect::<Vec<_>>(),
+            _ => vec![character],
+        })
+        .collect()
 }
 
 fn markdown_file_arg_from_args<I, S>(args: I) -> Option<PathBuf>
@@ -61,15 +115,25 @@ fn initial_file_from_args() -> Option<PathBuf> {
 
 #[tauri::command]
 async fn file_read(path: String) -> Result<String, String> {
+    let path = PathBuf::from(path);
+    ensure_markdown_file_path(&path)?;
+
+    if !path.is_file() {
+        return Err("Path is not a file".to_string());
+    }
+
     fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
 #[tauri::command]
 async fn file_write(path: String, content: String) -> Result<(), String> {
-    let temp_path = format!("{}.tmp", path);
+    let path = PathBuf::from(path);
+    ensure_markdown_file_path(&path)?;
+
+    let temp_path = format!("{}.tmp", path.to_string_lossy());
     fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
 
-    fs::rename(&temp_path, &path).map_err(|e| {
+    fs::rename(&temp_path, path).map_err(|e| {
         let _ = fs::remove_file(&temp_path);
         format!("Failed to rename temp file: {}", e)
     })?;
@@ -101,6 +165,16 @@ async fn read_image_as_data_url(path: String) -> Result<String, String> {
     let image_path = PathBuf::from(&path);
     let mime_type =
         image_mime_type(&image_path).ok_or_else(|| "Unsupported image format".to_string())?;
+    let metadata = fs::metadata(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
+
+    if !metadata.is_file() {
+        return Err("Image path is not a file".to_string());
+    }
+
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err("Image is too large to embed".to_string());
+    }
+
     let image_data = fs::read(&image_path).map_err(|e| format!("Failed to read image: {}", e))?;
     let encoded_data = general_purpose::STANDARD.encode(image_data);
 
@@ -122,28 +196,50 @@ async fn set_current_file(path: Option<String>, state: State<'_, FileState>) -> 
 
 #[tauri::command]
 async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
-    let path = Path::new(&folder_path);
+    let path = PathBuf::from(&folder_path);
     if !path.is_dir() {
         return Err("Path is not a directory".to_string());
     }
 
-    fn scan_directory(dir_path: &Path) -> Result<Vec<FileInfo>, String> {
+    fn scan_directory(
+        dir_path: &Path,
+        depth: usize,
+        visited: &mut HashSet<PathBuf>,
+        markdown_file_count: &mut usize,
+    ) -> Result<Vec<FileInfo>, String> {
+        if depth > MAX_SCAN_DEPTH {
+            return Ok(Vec::new());
+        }
+
+        let canonical_dir = fs::canonicalize(dir_path)
+            .map_err(|e| format!("Failed to resolve directory: {}", e))?;
+
+        if !visited.insert(canonical_dir.clone()) {
+            return Ok(Vec::new());
+        }
+
         let mut files = Vec::new();
 
         let entries =
-            fs::read_dir(dir_path).map_err(|e| format!("Failed to read directory: {}", e))?;
+            fs::read_dir(&canonical_dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
+            let metadata =
+                fs::symlink_metadata(&path).map_err(|e| format!("Failed to read entry: {}", e))?;
 
             if name.starts_with('.') || name == "node_modules" || name == "target" {
                 continue;
             }
 
-            if path.is_dir() {
-                let children = scan_directory(&path)?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+
+            if metadata.is_dir() {
+                let children = scan_directory(&path, depth + 1, visited, markdown_file_count)?;
                 if !children.is_empty() {
                     files.push(FileInfo {
                         name,
@@ -152,7 +248,15 @@ async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
                         children: Some(children),
                     });
                 }
-            } else if is_markdown_file_path(&path) {
+            } else if metadata.is_file() && is_markdown_file_path(&path) {
+                if *markdown_file_count >= MAX_SCANNED_MARKDOWN_FILES {
+                    return Err(format!(
+                        "Folder scan exceeded {} Markdown files",
+                        MAX_SCANNED_MARKDOWN_FILES
+                    ));
+                }
+
+                *markdown_file_count += 1;
                 files.push(FileInfo {
                     name,
                     path: path.to_string_lossy().to_string(),
@@ -171,7 +275,10 @@ async fn scan_folder(folder_path: String) -> Result<Vec<FileInfo>, String> {
         Ok(files)
     }
 
-    scan_directory(path)
+    let mut visited = HashSet::new();
+    let mut markdown_file_count = 0;
+
+    scan_directory(&path, 0, &mut visited, &mut markdown_file_count)
 }
 
 const EXPORT_DOCUMENT_STYLE: &str = r#"
@@ -409,6 +516,9 @@ fn temporary_export_html_path() -> PathBuf {
 
 #[tauri::command]
 async fn export_html(file_path: String, html_content: String, title: String) -> Result<(), String> {
+    let output_path = PathBuf::from(&file_path);
+    ensure_export_file_path(&output_path, &["html", "htm"])?;
+    let escaped_title = escape_html_text(&title);
     let full_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -422,7 +532,7 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
     {}
 </body>
 </html>"#,
-        title, EXPORT_DOCUMENT_STYLE, html_content
+        escaped_title, EXPORT_DOCUMENT_STYLE, html_content
     );
 
     let temp_path = format!("{}.tmp", file_path);
@@ -437,6 +547,9 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
 
 #[tauri::command]
 async fn export_pdf(file_path: String, html_content: String, title: String) -> Result<(), String> {
+    let output_path = PathBuf::from(&file_path);
+    ensure_export_file_path(&output_path, &["pdf"])?;
+    let escaped_title = escape_html_text(&title);
     let full_html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -450,7 +563,7 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     {}
 </body>
 </html>"#,
-        title, EXPORT_DOCUMENT_STYLE, html_content
+        escaped_title, EXPORT_DOCUMENT_STYLE, html_content
     );
 
     let temp_html_path = temporary_export_html_path();
@@ -461,6 +574,7 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     let pdf_result = (|| -> Result<Vec<u8>, String> {
         let browser = Browser::new(LaunchOptions {
             headless: true,
+            window_size: Some((PDF_VIEWPORT_WIDTH, PDF_VIEWPORT_HEIGHT)),
             ..Default::default()
         })
         .map_err(|e| format!("Failed to launch browser: {}", e))?;
@@ -537,6 +651,14 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
             r#"
             new Promise((resolve) => {
                 const PAGE_HEIGHT = 1046;
+                const PAGE_GUTTER = 10;
+                const PRINT_LAYOUT_SAFETY_GUTTER = 48;
+                const PAGE_TOP_GRACE_RATIO = 0.1;
+                const PAGE_BREAK_MIN_POSITION_RATIO = 0.25;
+                const MIN_SCALE_TO_FIT_REMAINING = 0.7;
+
+                document.body.style.maxWidth = 'none';
+                document.body.style.padding = '0';
 
                 function getAbsoluteTop(el) {
                     let top = 0;
@@ -548,43 +670,110 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
                     return top;
                 }
 
+                function parsePixelValue(value) {
+                    const parsed = parseFloat(value);
+                    return Number.isFinite(parsed) ? parsed : 0;
+                }
+
+                function getVerticalMargins(el) {
+                    const style = window.getComputedStyle(el);
+                    return parsePixelValue(style.marginTop) + parsePixelValue(style.marginBottom);
+                }
+
+                function getBoxHeight(el) {
+                    return el.getBoundingClientRect().height || el.offsetHeight;
+                }
+
+                function getBlockHeight(el) {
+                    return getBoxHeight(el) + getVerticalMargins(el);
+                }
+
+                function resizeSvgToHeight(svg, maxHeight) {
+                    const svgRect = svg.getBoundingClientRect();
+                    const svgH = svgRect.height || parseFloat(svg.getAttribute('height')) || 0;
+                    const svgW = svgRect.width || parseFloat(svg.getAttribute('width')) || 0;
+
+                    if (!svgH || svgH <= maxHeight) {
+                        return 1;
+                    }
+
+                    const scale = maxHeight / svgH;
+                    const targetWidth = svgW * scale;
+
+                    svg.setAttribute('height', String(maxHeight));
+                    svg.style.height = maxHeight + 'px';
+                    svg.style.maxWidth = '100%';
+
+                    if (targetWidth > 0) {
+                        svg.setAttribute('width', String(targetWidth));
+                        svg.style.width = targetWidth + 'px';
+                    }
+
+                    return scale;
+                }
+
+                function scaleElementToBlockHeight(el, targetBlockHeight) {
+                    const margins = getVerticalMargins(el);
+                    const currentBoxHeight = getBoxHeight(el);
+                    const targetBoxHeight = Math.max(1, targetBlockHeight - margins);
+
+                    if (!currentBoxHeight || currentBoxHeight <= targetBoxHeight) {
+                        return 1;
+                    }
+
+                    el.style.maxHeight = targetBoxHeight + 'px';
+
+                    if (el.tagName === 'IMG') {
+                        el.style.objectFit = 'scale-down';
+                        el.style.height = 'auto';
+                        return targetBoxHeight / currentBoxHeight;
+                    }
+
+                    const svg = el.querySelector('svg');
+                    if (!svg) {
+                        return 1;
+                    }
+
+                    const svgHeight = svg.getBoundingClientRect().height || parseFloat(svg.getAttribute('height')) || currentBoxHeight;
+                    const frameHeight = Math.max(0, currentBoxHeight - svgHeight);
+                    const maxSvgHeight = Math.max(1, targetBoxHeight - frameHeight);
+                    const svgScale = resizeSvgToHeight(svg, maxSvgHeight);
+
+                    el.style.overflow = 'hidden';
+
+                    return Math.min(targetBoxHeight / currentBoxHeight, svgScale);
+                }
+
                 const elements = Array.from(document.querySelectorAll('img, .mermaid, pre, blockquote'));
 
                 for (const el of elements) {
                     const top = getAbsoluteTop(el);
-                    const height = el.offsetHeight;
+                    const height = getBlockHeight(el);
                     const posInPage = top % PAGE_HEIGHT;
                     const remaining = PAGE_HEIGHT - posInPage;
+                    const availableHeight = remaining - PRINT_LAYOUT_SAFETY_GUTTER;
 
-                    if (height <= remaining) continue;
-                    if (posInPage <= PAGE_HEIGHT * 0.1) continue;
+                    if (height <= availableHeight) continue;
 
                     const isScalable = el.tagName === 'IMG' || el.classList.contains('mermaid');
+                    const isNearPageTop = posInPage <= PAGE_HEIGHT * PAGE_TOP_GRACE_RATIO;
 
-                    if (isScalable && remaining >= PAGE_HEIGHT * 0.55) {
-                        const targetHeight = remaining - 10;
-                        el.style.maxHeight = targetHeight + 'px';
-                        el.style.overflow = 'hidden';
-                        if (el.tagName === 'IMG') {
-                            el.style.objectFit = 'scale-down';
-                            el.style.height = 'auto';
-                        } else {
-                            const svg = el.querySelector('svg');
-                            if (svg) {
-                                const svgH = svg.getBoundingClientRect().height || parseFloat(svg.getAttribute('height')) || height;
-                                const svgW = svg.getBoundingClientRect().width || parseFloat(svg.getAttribute('width')) || el.offsetWidth;
-                                const maxSvgH = targetHeight - 32;
-                                if (svgH > maxSvgH) {
-                                    const scale = maxSvgH / svgH;
-                                    svg.setAttribute('height', maxSvgH);
-                                    svg.setAttribute('width', svgW * scale);
-                                    svg.style.height = maxSvgH + 'px';
-                                    svg.style.width = (svgW * scale) + 'px';
-                                    svg.style.maxWidth = '100%';
-                                }
-                            }
+                    if (isScalable) {
+                        const requiredScale = availableHeight / height;
+
+                        if (!isNearPageTop && requiredScale >= MIN_SCALE_TO_FIT_REMAINING) {
+                            scaleElementToBlockHeight(el, availableHeight);
+                            continue;
                         }
-                    } else if (posInPage > PAGE_HEIGHT * 0.25) {
+
+                        const fullPageHeight = PAGE_HEIGHT - PAGE_GUTTER;
+                        if (height > fullPageHeight) {
+                            scaleElementToBlockHeight(el, fullPageHeight);
+                        }
+                    }
+
+                    if (!isNearPageTop && posInPage > PAGE_HEIGHT * PAGE_BREAK_MIN_POSITION_RATIO) {
+                        el.style.breakBefore = 'page';
                         el.style.pageBreakBefore = 'always';
                     }
                 }
@@ -598,9 +787,15 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
 
         tab.print_to_pdf(Some(PrintToPdfOptions {
             print_background: Some(true),
+            paper_width: Some(PDF_PAPER_WIDTH_INCHES),
+            paper_height: Some(PDF_PAPER_HEIGHT_INCHES),
+            margin_top: Some(PDF_MARGIN_INCHES),
+            margin_bottom: Some(PDF_MARGIN_INCHES),
+            margin_left: Some(PDF_MARGIN_INCHES),
+            margin_right: Some(PDF_MARGIN_INCHES),
             ..Default::default()
         }))
-            .map_err(|e| format!("Failed to generate PDF: {}", e))
+        .map_err(|e| format!("Failed to generate PDF: {}", e))
     })();
 
     let _ = fs::remove_file(&temp_html_path);
@@ -659,7 +854,11 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        app.exit(0);
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.close();
+                        } else {
+                            app.exit(0);
+                        }
                     }
                     _ => {}
                 })
