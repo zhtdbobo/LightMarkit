@@ -293,7 +293,7 @@ table {
     margin-bottom: 1em;
     width: 100%;
     overflow: auto;
-    page-break-inside: avoid;
+    page-break-inside: auto;
 }
 table th, table td {
     padding: 6px 13px;
@@ -304,9 +304,14 @@ table th {
     color: #222222;
     background-color: #f7f7f7;
 }
+table thead {
+    display: table-row-group;
+}
 table tr {
     background-color: #ffffff;
     border-top: 1px solid #dddddd;
+    page-break-inside: avoid;
+    page-break-after: auto;
 }
 table tr:nth-child(2n) { background-color: #fafafa; }
 s, del {
@@ -315,6 +320,8 @@ s, del {
 }
 img {
     max-width: 100%;
+    max-height: 900px;
+    object-fit: scale-down;
     box-sizing: border-box;
     background-color: #ffffff;
     border: 1px solid #dddddd;
@@ -329,10 +336,12 @@ img {
     border-radius: 8px;
     text-align: center;
     overflow-x: auto;
+    max-height: 900px;
     page-break-inside: avoid;
 }
 .mermaid svg {
     max-width: 100%;
+    max-height: 868px;
     height: auto;
     background-color: #ffffff !important;
     print-color-adjust: exact;
@@ -499,6 +508,83 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
             true,
         )
         .map_err(|e| format!("Failed to wait for images: {}", e))?;
+
+        tab.evaluate(
+            r#"
+            new Promise((resolve) => {
+                const mermaidEls = document.querySelectorAll('.mermaid');
+                if (mermaidEls.length === 0) {
+                    resolve();
+                    return;
+                }
+
+                let checks = 0;
+                const interval = setInterval(() => {
+                    checks++;
+                    const allDone = Array.from(mermaidEls).every(el => el.querySelector('svg'));
+                    if (allDone || checks > 30) {
+                        clearInterval(interval);
+                        resolve();
+                    }
+                }, 200);
+            })
+            "#,
+            true,
+        )
+        .map_err(|e| format!("Failed to wait for mermaid: {}", e))?;
+
+        tab.evaluate(
+            r#"
+            new Promise((resolve) => {
+                const PAGE_HEIGHT = 1046;
+
+                function getAbsoluteTop(el) {
+                    let top = 0;
+                    let current = el;
+                    while (current) {
+                        top += current.offsetTop;
+                        current = current.offsetParent;
+                    }
+                    return top;
+                }
+
+                const elements = Array.from(document.querySelectorAll('img, .mermaid, pre, blockquote'));
+
+                for (const el of elements) {
+                    const top = getAbsoluteTop(el);
+                    const height = el.offsetHeight;
+                    const posInPage = top % PAGE_HEIGHT;
+                    const remaining = PAGE_HEIGHT - posInPage;
+
+                    if (height <= remaining) continue;
+                    if (posInPage <= PAGE_HEIGHT * 0.1) continue;
+
+                    const isScalable = el.tagName === 'IMG' || el.classList.contains('mermaid');
+
+                    if (isScalable && remaining >= PAGE_HEIGHT * 0.55) {
+                        const targetHeight = remaining - 10;
+                        el.style.maxHeight = targetHeight + 'px';
+                        if (el.tagName === 'IMG') {
+                            el.style.objectFit = 'scale-down';
+                            el.style.width = 'auto';
+                        } else {
+                            const svg = el.querySelector('svg');
+                            if (svg) {
+                                svg.style.maxHeight = (targetHeight - 32) + 'px';
+                                svg.style.width = 'auto';
+                            }
+                        }
+                    } else if (posInPage > PAGE_HEIGHT * 0.25) {
+                        el.style.pageBreakBefore = 'always';
+                    }
+                }
+
+                resolve(true);
+            })
+            "#,
+            true,
+        )
+        .map_err(|e| format!("Failed to apply pagination: {}", e))?;
 
         tab.print_to_pdf(Some(PrintToPdfOptions {
             print_background: Some(true),
