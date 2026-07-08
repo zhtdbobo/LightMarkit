@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
+use encoding_rs::{Encoding, BIG5, GBK, SHIFT_JIS, UTF_16BE, UTF_16LE, WINDOWS_1252};
 use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -74,6 +75,56 @@ fn ensure_export_file_path(path: &Path, allowed_extensions: &[&str]) -> Result<(
     }
 }
 
+fn strip_unicode_bom(content: String) -> String {
+    content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&content)
+        .to_string()
+}
+
+fn decode_with_encoding(bytes: &[u8], encoding: &'static Encoding) -> Result<String, ()> {
+    let (decoded, _, had_errors) = encoding.decode(bytes);
+
+    if had_errors {
+        Err(())
+    } else {
+        Ok(decoded.into_owned())
+    }
+}
+
+fn decode_markdown_bytes(bytes: &[u8]) -> Result<String, String> {
+    if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        return String::from_utf8(bytes[3..].to_vec())
+            .map(strip_unicode_bom)
+            .map_err(|e| format!("Failed to decode UTF-8 file: {}", e));
+    }
+
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        return decode_with_encoding(&bytes[2..], UTF_16LE)
+            .map(strip_unicode_bom)
+            .map_err(|_| "Failed to decode UTF-16 LE file".to_string());
+    }
+
+    if bytes.starts_with(&[0xfe, 0xff]) {
+        return decode_with_encoding(&bytes[2..], UTF_16BE)
+            .map(strip_unicode_bom)
+            .map_err(|_| "Failed to decode UTF-16 BE file".to_string());
+    }
+
+    if let Ok(content) = std::str::from_utf8(bytes) {
+        return Ok(strip_unicode_bom(content.to_string()));
+    }
+
+    for encoding in [GBK, BIG5, SHIFT_JIS, WINDOWS_1252] {
+        if let Ok(content) = decode_with_encoding(bytes, encoding) {
+            return Ok(strip_unicode_bom(content));
+        }
+    }
+
+    let (decoded, _, _) = GBK.decode(bytes);
+    Ok(strip_unicode_bom(decoded.into_owned()))
+}
+
 fn escape_html_text(value: &str) -> String {
     value
         .chars()
@@ -122,7 +173,8 @@ async fn file_read(path: String) -> Result<String, String> {
         return Err("Path is not a file".to_string());
     }
 
-    fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    decode_markdown_bytes(&bytes)
 }
 
 #[tauri::command]
@@ -914,6 +966,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(path, PathBuf::from("C:\\notes\\draft.md"));
+    }
+
+    #[test]
+    fn decodes_utf8_bom_markdown_bytes() {
+        let content = decode_markdown_bytes(&[0xef, 0xbb, 0xbf, b'#', b' ', b'N', b'o', b't', b'e'])
+            .unwrap();
+
+        assert_eq!(content, "# Note");
+    }
+
+    #[test]
+    fn decodes_gbk_markdown_bytes() {
+        let content = decode_markdown_bytes(&[0x23, 0x20, 0xb1, 0xea, 0xcc, 0xe2]).unwrap();
+
+        assert_eq!(content, "# 标题");
     }
 
     #[test]

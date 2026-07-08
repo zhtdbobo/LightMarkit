@@ -32,6 +32,7 @@ describe('App window close behavior', () => {
     minimize: vi.fn(),
     toggleMaximize: vi.fn(),
     close: vi.fn(),
+    destroy: vi.fn(),
     startDragging: vi.fn(),
     onCloseRequested: vi.fn().mockResolvedValue(vi.fn()),
   }
@@ -59,11 +60,11 @@ describe('App window close behavior', () => {
 
     await waitFor(() => {
       expect(fileWrite).toHaveBeenCalledWith(currentPath, '# Draft')
-      expect(mockWindow.close).toHaveBeenCalledTimes(1)
+      expect(mockWindow.destroy).toHaveBeenCalledTimes(1)
     })
 
     expect(vi.mocked(fileWrite).mock.invocationCallOrder[0]).toBeLessThan(
-      mockWindow.close.mock.invocationCallOrder[0]
+      mockWindow.destroy.mock.invocationCallOrder[0]
     )
   })
 
@@ -87,7 +88,7 @@ describe('App window close behavior', () => {
     await waitFor(() => {
       expect(save).toHaveBeenCalled()
       expect(fileWrite).toHaveBeenCalledWith(savedPath, expect.stringContaining('#'))
-      expect(mockWindow.close).toHaveBeenCalledTimes(1)
+      expect(mockWindow.destroy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -109,6 +110,6 @@ describe('App window close behavior', () => {
     await waitFor(() => {
       expect(save).toHaveBeenCalled()
     })
-    expect(mockWindow.close).not.toHaveBeenCalled()
+    expect(mockWindow.destroy).not.toHaveBeenCalled()
   })
 })

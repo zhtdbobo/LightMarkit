@@ -53,6 +53,18 @@ function getExportFileName(
   return `${sanitizedName || FALLBACK_DOCUMENT_NAME}.${extension}`
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  return '未知错误'
+}
+
 function ViewModeIcon({ mode }: { mode: ViewMode }) {
   if (mode === 'edit') {
     return (
@@ -114,6 +126,7 @@ function App() {
   const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>([])
   const [sidebarWidth, setSidebarWidth] = useState(250)
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
   const autoSaveTimerRef = useRef<number | null>(null)
   const headerActionsRef = useRef<HTMLElement | null>(null)
   const editorPanelRef = useRef<HTMLDivElement | null>(null)
@@ -167,10 +180,12 @@ function App() {
         const fileContent = await fileRead(selected)
         setContent(fileContent)
         setCurrentFilePath(selected)
+        setFileError(null)
         await setCurrentFile(selected)
       }
     } catch (error) {
       console.error('Failed to open file:', error)
+      setFileError(`无法打开文件：${getErrorMessage(error)}`)
     }
   }, [])
 
@@ -218,6 +233,7 @@ function App() {
       }
     } catch (error) {
       console.error('Failed to open folder:', error)
+      setFileError(`无法打开文件夹：${getErrorMessage(error)}`)
     }
   }, [])
 
@@ -227,9 +243,11 @@ function App() {
       const fileContent = await fileRead(filePath)
       setContent(fileContent)
       setCurrentFilePath(filePath)
+      setFileError(null)
       await setCurrentFile(filePath)
     } catch (error) {
       console.error('Failed to open file from list:', error)
+      setFileError(`无法打开文件：${getErrorMessage(error)}`)
     }
   }, [])
 
@@ -403,7 +421,7 @@ function App() {
     }
 
     isProgrammaticCloseRef.current = true
-    await getCurrentWindow().close()
+    await getCurrentWindow().destroy()
   }, [content, currentFile, handleSaveAsFile, handleSaveFile])
 
   useEffect(() => {
@@ -484,9 +502,11 @@ function App() {
           const fileContent = await fileRead(path)
           setContent(fileContent)
           setCurrentFilePath(path)
+          setFileError(null)
         }
       } catch (error) {
         console.error('Failed to load current file:', error)
+        setFileError(`无法恢复上次打开的文件：${getErrorMessage(error)}`)
       }
     }
 
@@ -748,6 +768,20 @@ function App() {
           </div>
         </div>
       </header>
+      {fileError && (
+        <div className="file-error-banner" role="alert">
+          <span>{fileError}</span>
+          <button
+            type="button"
+            className="file-error-dismiss"
+            onClick={() => setFileError(null)}
+            aria-label="关闭提示"
+            title="关闭提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <main className="app-main">
         <div
           className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}

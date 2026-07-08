@@ -17,6 +17,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     minimize: vi.fn(),
     toggleMaximize: vi.fn(),
     close: vi.fn(),
+    destroy: vi.fn(),
     startDragging: vi.fn(),
     onCloseRequested: vi.fn().mockResolvedValue(vi.fn()),
   })),
@@ -43,6 +44,7 @@ describe('App', () => {
     minimize: vi.fn(),
     toggleMaximize: vi.fn(),
     close: vi.fn(),
+    destroy: vi.fn(),
     startDragging: vi.fn(),
     onCloseRequested: vi.fn().mockResolvedValue(vi.fn()),
   }
@@ -92,6 +94,20 @@ describe('App', () => {
     })
   })
 
+  it('打开文件失败时应该显示错误提示', async () => {
+    vi.mocked(open).mockResolvedValue('C:\\notes\\legacy.md')
+    vi.mocked(fileRead).mockRejectedValueOnce('Failed to decode UTF-8 file')
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开文件' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法打开文件')
+    expect(alert).toHaveTextContent('Failed to decode UTF-8 file')
+  })
+
   it('应该渲染视图模式切换按钮', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument()
@@ -123,7 +139,7 @@ describe('App', () => {
     expect(mockWindow.toggleMaximize).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
-    expect(mockWindow.close).toHaveBeenCalledTimes(1)
+    expect(mockWindow.destroy).toHaveBeenCalledTimes(1)
   })
 
   it('应该展开文件菜单显示文件操作', () => {
