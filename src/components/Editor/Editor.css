@@ -33,6 +33,7 @@
 .editor-wrapper .cm-heading {
   font-weight: bold;
   color: #1a73e8;
+  text-decoration: none;
 }
 
 .editor-wrapper .cm-strong {
@@ -89,4 +90,57 @@
 
 .editor-wrapper .cm-activeLineGutter {
   background-color: #e8f0fe;
+}
+
+/* Slash command menu */
+.editor-wrapper .cm-tooltip.cm-tooltip-autocomplete {
+  box-sizing: border-box;
+  width: 280px;
+  min-width: min(240px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  border: 1px solid #d7dbe0;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgb(32 33 36 / 18%);
+}
+
+.editor-wrapper .cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: 348px;
+  padding: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.editor-wrapper .cm-tooltip-autocomplete > ul > li {
+  box-sizing: border-box;
+  height: 34px;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+
+.editor-wrapper .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: #e8f0fe;
+  color: #202124;
+}
+
+.editor-wrapper .cm-completionLabel {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .editor-wrapper .cm-tooltip.cm-tooltip-autocomplete {
+    border-color: #4a4f55;
+    background: #25272a;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+    color: #f1f3f4;
+  }
+
+  .editor-wrapper .cm-tooltip-autocomplete > ul > li[aria-selected] {
+    background: #3c4043;
+    color: #ffffff;
+  }
 }

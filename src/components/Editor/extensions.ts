@@ -1,8 +1,13 @@
 import { EditorState, Extension } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 import { EditorView } from 'codemirror'
+import { slashCommandSource } from './slashCommands'
+
+const headingHighlightStyle = HighlightStyle.define([{ tag: tags.heading, class: 'cm-heading' }])
 
 /**
  * 包裹选中文字的辅助函数
@@ -15,9 +20,7 @@ function wrapSelection(view: EditorView, before: string, after: string = before)
   if (selectedText) {
     // 有选中文字，包裹它
     view.dispatch({
-      changes: [
-        { from, to, insert: `${before}${selectedText}${after}` },
-      ],
+      changes: [{ from, to, insert: `${before}${selectedText}${after}` }],
       selection: { anchor: from + before.length + selectedText.length + after.length },
     })
   } else {
@@ -113,6 +116,17 @@ export function createEditingExtensions(): Extension[] {
     // 括号自动闭合
     closeBrackets(),
     keymap.of(closeBracketsKeymap),
+
+    // Slash commands for common Markdown blocks
+    autocompletion({
+      override: [slashCommandSource],
+      icons: false,
+      maxRenderedOptions: 10,
+    }),
+
+    // Keep CodeMirror's default token colors while exposing headings to the editor theme.
+    syntaxHighlighting(defaultHighlightStyle),
+    syntaxHighlighting(headingHighlightStyle),
 
     // 自定义按键绑定
     keymap.of([

@@ -195,6 +195,7 @@
 .preview-container table th {
   color: #222222;
   font-weight: 600;
+  text-align: left;
   background-color: #f7f7f7;
 }
 
