@@ -1,15 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { EditorView } from 'codemirror'
+import { listen } from '@tauri-apps/api/event'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
 import { Resizer } from './components/Resizer'
 import { FileList, type FolderGroup } from './components/FileList'
-import { fileRead, fileWrite, getCurrentFile, setCurrentFile } from './utils/fileApi'
+import { Outline } from './components/Outline'
+import { fileRead, fileWrite, getCurrentFile, setCurrentFile, watchCurrentFile } from './utils/fileApi'
 import { scanFolder } from './utils/folderApi'
 import { exportHtml, exportPdf } from './utils/exportApi'
+import { extractMarkdownOutline, type OutlineItem } from './utils/outline'
 import { renderMarkdownToExportHtml } from './utils/markdownRenderer'
+import { resolvePreviewSourceLine } from './utils/scrollSync'
 import './App.css'
+
+const APP_STATE_STORAGE_KEY = 'lightmarkit.app-state.v1'
 
 type ViewMode = 'edit' | 'split' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
@@ -21,6 +28,9 @@ const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i
 const INVALID_FILE_NAME_CHARACTERS = /[<>:"/\\|?*]/g
 const MIN_SIDEBAR_WIDTH = 180
 const MAX_SIDEBAR_WIDTH = 520
+const MIN_OUTLINE_WIDTH = 220
+const MAX_OUTLINE_WIDTH = 480
+const APP_LAYOUT_STORAGE_KEY = 'lightmarkit.layout.v1'
 
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
@@ -117,22 +127,151 @@ function WindowControlIcon({ action }: { action: 'minimize' | 'maximize' | 'clos
   )
 }
 
+function OutlineToggleIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {visible ? (
+        <>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M9 8h8M9 12h8M9 16h5" />
+          <path d="M6 8h1M6 12h1M6 16h1" />
+        </>
+      ) : (
+        <>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M10 8h7" opacity="0.35" />
+          <path d="M10 12h7" opacity="0.35" />
+          <path d="M10 16h4" opacity="0.35" />
+          <path d="M7 7l10 10" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function findActiveOutlineId(items: OutlineItem[], line: number): string | null {
+  let activeId: string | null = null
+
+  for (const item of items) {
+    if (item.line <= line) {
+      activeId = item.id
+    } else {
+      break
+    }
+  }
+
+  return activeId
+}
+
+/** 视口内用于判定“当前章节”的垂直探针位置（偏上，避免跳到过远的下一段） */
+const VIEWPORT_PROBE_RATIO = 0.32
+
+function getEditorViewportLine(view: EditorView): number {
+  try {
+    const probeOffset = Math.max(12, view.scrollDOM.clientHeight * VIEWPORT_PROBE_RATIO)
+    const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + probeOffset)
+    return view.state.doc.lineAt(block.from).number
+  } catch {
+    return 1
+  }
+}
+
 function App() {
   const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [leftWidth, setLeftWidth] = useState(50)
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>([])
-  const [sidebarWidth, setSidebarWidth] = useState(250)
+  const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>(() => {
+    try {
+      const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw) as { openedFolders?: FolderGroup[] }
+      return Array.isArray(parsed.openedFolders) ? parsed.openedFolders : []
+    } catch {
+      return []
+    }
+  })
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const raw = localStorage.getItem(APP_LAYOUT_STORAGE_KEY)
+      if (!raw) return 250
+      const parsed = JSON.parse(raw) as { sidebarWidth?: number }
+      if (typeof parsed.sidebarWidth !== 'number') return 250
+      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, parsed.sidebarWidth))
+    } catch {
+      return 250
+    }
+  })
+  const [outlineWidth, setOutlineWidth] = useState(() => {
+    try {
+      const raw = localStorage.getItem(APP_LAYOUT_STORAGE_KEY)
+      if (!raw) return 260
+      const parsed = JSON.parse(raw) as { outlineWidth?: number }
+      if (typeof parsed.outlineWidth !== 'number') return 260
+      return Math.max(MIN_OUTLINE_WIDTH, Math.min(MAX_OUTLINE_WIDTH, parsed.outlineWidth))
+    } catch {
+      return 260
+    }
+  })
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const outlineItems = useMemo(() => extractMarkdownOutline(content), [content])
+  const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null)
+  const [isOutlineVisible, setIsOutlineVisible] = useState(() => {
+    try {
+      const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
+      if (!raw) return true
+      const parsed = JSON.parse(raw) as { isOutlineVisible?: boolean }
+      return parsed.isOutlineVisible ?? true
+    } catch {
+      return true
+    }
+  })
   const autoSaveTimerRef = useRef<number | null>(null)
+  const lastSyncedContentRef = useRef('')
+  const contentRef = useRef('')
   const headerActionsRef = useRef<HTMLElement | null>(null)
   const editorPanelRef = useRef<HTMLDivElement | null>(null)
   const previewPanelRef = useRef<HTMLDivElement | null>(null)
+  const editorViewRef = useRef<EditorView | null>(null)
   const isSyncingScrollRef = useRef(false)
   const isProgrammaticCloseRef = useRef(false)
+  const activeOutlineIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    contentRef.current = content
+  }, [content])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        APP_LAYOUT_STORAGE_KEY,
+        JSON.stringify({ sidebarWidth, outlineWidth })
+      )
+    } catch {
+      // ignore storage failures
+    }
+  }, [sidebarWidth, outlineWidth])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        APP_STATE_STORAGE_KEY,
+        JSON.stringify({
+          openedFolders: openedFolders.map((folder) => ({
+            name: folder.name,
+            path: folder.path,
+            files: [],
+          })),
+          isOutlineVisible,
+          currentFile,
+        })
+      )
+    } catch {
+      // ignore storage failures
+    }
+  }, [openedFolders, isOutlineVisible, currentFile])
 
   const runToolbarAction = useCallback((action: () => unknown | Promise<unknown>) => {
     setOpenMenu(null)
@@ -179,6 +318,7 @@ function App() {
       if (selected && typeof selected === 'string') {
         const fileContent = await fileRead(selected)
         setContent(fileContent)
+        lastSyncedContentRef.current = fileContent
         setCurrentFilePath(selected)
         setFileError(null)
         await setCurrentFile(selected)
@@ -242,6 +382,7 @@ function App() {
     try {
       const fileContent = await fileRead(filePath)
       setContent(fileContent)
+      lastSyncedContentRef.current = fileContent
       setCurrentFilePath(filePath)
       setFileError(null)
       await setCurrentFile(filePath)
@@ -280,6 +421,33 @@ function App() {
       window.addEventListener('pointerup', handlePointerUp)
     },
     [sidebarWidth]
+  )
+
+  const handleOutlineResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+
+      const startX = event.clientX
+      const startWidth = outlineWidth
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextWidth = startWidth + (startX - moveEvent.clientX)
+        setOutlineWidth(Math.max(MIN_OUTLINE_WIDTH, Math.min(MAX_OUTLINE_WIDTH, nextWidth)))
+      }
+
+      const handlePointerUp = () => {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+    },
+    [outlineWidth]
   )
 
   // 导出 HTML
@@ -369,6 +537,7 @@ function App() {
 
       if (selected) {
         await fileWrite(selected, content)
+        lastSyncedContentRef.current = content
         setCurrentFilePath(selected)
         await setCurrentFile(selected)
         console.log('File saved as:', selected)
@@ -385,20 +554,20 @@ function App() {
   // 保存文件
   const handleSaveFile = useCallback(async (): Promise<boolean> => {
     if (!currentFile) {
-      // 如果没有当前文件，则另存为
       return handleSaveAsFile()
     }
 
     try {
       setSaveStatus('saving')
       await fileWrite(currentFile, content)
+      lastSyncedContentRef.current = content
       setSaveStatus('saved')
       console.log('File saved successfully')
 
       // 2秒后重置状态
       setTimeout(() => {
         setSaveStatus('idle')
-      }, 2000)
+      }, 1200)
       return true
     } catch (error) {
       console.error('Failed to save file:', error)
@@ -457,6 +626,11 @@ function App() {
       return
     }
 
+    // 外部同步写入时不重复触发自动保存
+    if (content === lastSyncedContentRef.current) {
+      return
+    }
+
     // 设置 500ms 防抖
     autoSaveTimerRef.current = window.setTimeout(() => {
       handleSaveFile()
@@ -493,16 +667,33 @@ function App() {
     }
   }, [currentFile, saveStatus, handleSaveFile])
 
-  // 加载当前文件
+  // 加载当前文件 + 恢复上次文件夹
   useEffect(() => {
     const loadCurrentFile = async () => {
       try {
-        const path = await getCurrentFile()
+        let path = await getCurrentFile()
+
+        if (!path) {
+          try {
+            const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
+            if (raw) {
+              const parsed = JSON.parse(raw) as { currentFile?: string | null }
+              if (typeof parsed.currentFile === 'string' && parsed.currentFile.length > 0) {
+                path = parsed.currentFile
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         if (path) {
           const fileContent = await fileRead(path)
           setContent(fileContent)
+          lastSyncedContentRef.current = fileContent
           setCurrentFilePath(path)
           setFileError(null)
+          await setCurrentFile(path)
         }
       } catch (error) {
         console.error('Failed to load current file:', error)
@@ -510,7 +701,42 @@ function App() {
       }
     }
 
-    loadCurrentFile()
+    const restoreFolders = async () => {
+      try {
+        const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
+        if (!raw) {
+          return
+        }
+
+        const parsed = JSON.parse(raw) as { openedFolders?: FolderGroup[] }
+        const folders = Array.isArray(parsed.openedFolders) ? parsed.openedFolders : []
+        if (folders.length === 0) {
+          return
+        }
+
+        const restored = await Promise.all(
+          folders.map(async (folder) => {
+            try {
+              const files = await scanFolder(folder.path)
+              return {
+                name: folder.name || getPathBaseName(folder.path),
+                path: folder.path,
+                files,
+              }
+            } catch {
+              return null
+            }
+          })
+        )
+
+        setOpenedFolders(restored.filter((folder): folder is FolderGroup => folder !== null))
+      } catch (error) {
+        console.error('Failed to restore folders:', error)
+      }
+    }
+
+    void loadCurrentFile()
+    void restoreFolders()
   }, [])
 
   // 处理 Ctrl+/ 快捷键切换模式
@@ -590,50 +816,275 @@ function App() {
     editorPanelRef.current = null
   }, [viewMode])
 
+  const handleOutlineItemClick = useCallback((item: OutlineItem) => {
+    const view = editorViewRef.current
+    if (!view) {
+      return
+    }
+
+    const lineNumber = Math.min(Math.max(item.line, 1), view.state.doc.lines)
+    const lineInfo = view.state.doc.line(lineNumber)
+    activeOutlineIdRef.current = item.id
+    setActiveOutlineId(item.id)
+    view.focus()
+    view.dispatch({
+      selection: { anchor: lineInfo.from, head: lineInfo.from },
+      effects: EditorView.scrollIntoView(lineInfo.from, { y: 'start', yMargin: 24 }),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!currentFile) {
+      return
+    }
+
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    void watchCurrentFile().catch((error) => {
+      console.error('Failed to start file watcher:', error)
+    })
+
+    void listen<string>('file-changed', async (event) => {
+      if (disposed || event.payload !== currentFile) {
+        return
+      }
+
+      try {
+        const latestContent = await fileRead(currentFile)
+        if (latestContent === lastSyncedContentRef.current) {
+          return
+        }
+
+        // 本地有未同步修改时不覆盖，避免与其他程序编辑冲突时丢字
+        if (contentRef.current !== lastSyncedContentRef.current) {
+          return
+        }
+
+        lastSyncedContentRef.current = latestContent
+        setContent(latestContent)
+        setFileError(null)
+      } catch (error) {
+        console.error('Failed to refresh file content:', error)
+      }
+    }).then((unsubscribe) => {
+      if (disposed) {
+        unsubscribe()
+        return
+      }
+      unlisten = unsubscribe
+    })
+
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [currentFile])
+
+  const updateActiveOutlineFromLine = useCallback(
+    (line: number) => {
+      const nextId = findActiveOutlineId(outlineItems, line)
+      if (nextId === activeOutlineIdRef.current) {
+        return
+      }
+
+      activeOutlineIdRef.current = nextId
+      setActiveOutlineId(nextId)
+
+      if (!nextId) {
+        return
+      }
+
+      const activeButton = document.querySelector<HTMLButtonElement>(
+        `[data-outline-id="${nextId}"]`
+      )
+      if (!activeButton) {
+        return
+      }
+
+      const list = activeButton.closest('.outline-list') as HTMLElement | null
+      if (list) {
+        const listRect = list.getBoundingClientRect()
+        const itemRect = activeButton.getBoundingClientRect()
+        const offset =
+          itemRect.top - listRect.top - listRect.height / 2 + itemRect.height / 2 + list.scrollTop
+        list.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' })
+      } else {
+        activeButton.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    },
+    [outlineItems]
+  )
+
+  // 单栏模式直接监听当前视口；分屏模式由滚动同步逻辑按实际滚动来源更新。
+  useEffect(() => {
+    if (viewMode === 'split') {
+      return
+    }
+
+    const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
+    const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+    const view = editorViewRef.current
+
+    const refreshHighlight = () => {
+      if (viewMode === 'edit' && view) {
+        updateActiveOutlineFromLine(getEditorViewportLine(view))
+        return
+      }
+
+      if (!previewScroller) {
+        return
+      }
+
+      const previewLine = resolvePreviewSourceLine(previewScroller)
+      if (previewLine !== null) {
+        updateActiveOutlineFromLine(previewLine)
+      }
+    }
+
+    let rafId: number | null = null
+    const scheduleRefresh = () => {
+      if (rafId !== null) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null
+        refreshHighlight()
+      })
+    }
+
+    refreshHighlight()
+    editorScroller?.addEventListener('scroll', scheduleRefresh, { passive: true })
+    previewScroller?.addEventListener('scroll', scheduleRefresh, { passive: true })
+
+    return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+      }
+      editorScroller?.removeEventListener('scroll', scheduleRefresh)
+      previewScroller?.removeEventListener('scroll', scheduleRefresh)
+    }
+  }, [viewMode, content, outlineItems, updateActiveOutlineFromLine])
+
+  // 分屏滚动同步：按阅读探针和块级锚点对齐，避免大块内容造成漂移
   useEffect(() => {
     if (viewMode !== 'split') {
       return
     }
 
     const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
-    const previewScroller =
-      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+    const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+    const view = editorViewRef.current
 
-    if (!editorScroller || !previewScroller) {
+    if (!editorScroller || !previewScroller || !view) {
       return
     }
 
-    const syncScroll = (source: HTMLElement, target: HTMLElement) => {
-      if (isSyncingScrollRef.current) {
-        return
+    type Anchor = { line: number; top: number }
+
+    const collectAnchors = (): Anchor[] => {
+      const nodes = previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')
+      const anchors: Anchor[] = []
+      const rootTop = previewScroller.getBoundingClientRect().top
+
+      nodes.forEach((node) => {
+        const line = Number.parseInt(node.getAttribute('data-source-line') || '', 10)
+        if (!Number.isFinite(line) || line <= 0) {
+          return
+        }
+        const top = node.getBoundingClientRect().top - rootTop + previewScroller.scrollTop
+        anchors.push({ line, top })
+      })
+
+      anchors.sort((a, b) => a.line - b.line || a.top - b.top)
+      return anchors
+    }
+
+    const previewTopForLine = (anchors: Anchor[], line: number): number => {
+      if (anchors.length === 0) return 0
+      if (line <= anchors[0].line) return Math.max(0, anchors[0].top)
+      const last = anchors[anchors.length - 1]
+      if (line >= last.line) return Math.max(0, previewScroller.scrollHeight - previewScroller.clientHeight)
+
+      for (let i = 0; i < anchors.length - 1; i += 1) {
+        const a = anchors[i]
+        const b = anchors[i + 1]
+        if (line >= a.line && line <= b.line) {
+          if (b.line === a.line) return a.top
+          const t = (line - a.line) / (b.line - a.line)
+          return a.top + t * (b.top - a.top)
+        }
       }
 
-      const sourceScrollable = source.scrollHeight - source.clientHeight
-      const targetScrollable = target.scrollHeight - target.clientHeight
+      return last.top
+    }
 
-      if (sourceScrollable <= 0 || targetScrollable <= 0) {
-        return
-      }
+    const sourceLineForPreviewViewport = (): number => {
+      return resolvePreviewSourceLine(previewScroller) ?? 1
+    }
 
-      isSyncingScrollRef.current = true
-      target.scrollTop = (source.scrollTop / sourceScrollable) * targetScrollable
+    const editorScrollTopForLine = (line: number): number => {
+      const safeLine = Math.min(Math.max(1, line), view.state.doc.lines)
+      const lineInfo = view.state.doc.line(safeLine)
+      return Math.max(0, view.lineBlockAt(lineInfo.from).top)
+    }
 
-      window.requestAnimationFrame(() => {
-        isSyncingScrollRef.current = false
+    let syncRaf: number | null = null
+
+    const syncOutlineFromEditor = () => {
+      if (isSyncingScrollRef.current) return
+      const line = getEditorViewportLine(view)
+      updateActiveOutlineFromLine(line)
+    }
+
+    const syncFromEditor = () => {
+      if (isSyncingScrollRef.current || syncRaf !== null) return
+      syncRaf = window.requestAnimationFrame(() => {
+        syncRaf = null
+        if (isSyncingScrollRef.current) return
+        const anchors = collectAnchors()
+        if (anchors.length === 0) return
+        const line = getEditorViewportLine(view)
+        updateActiveOutlineFromLine(line)
+        const targetTop = previewTopForLine(anchors, line)
+        if (Math.abs(previewScroller.scrollTop - targetTop) < 1) return
+        isSyncingScrollRef.current = true
+        previewScroller.scrollTop = targetTop
+        window.requestAnimationFrame(() => {
+          isSyncingScrollRef.current = false
+        })
       })
     }
 
-    const handleEditorScroll = () => syncScroll(editorScroller, previewScroller)
-    const handlePreviewScroll = () => syncScroll(previewScroller, editorScroller)
+    const syncFromPreview = () => {
+      if (isSyncingScrollRef.current || syncRaf !== null) return
+      syncRaf = window.requestAnimationFrame(() => {
+        syncRaf = null
+        if (isSyncingScrollRef.current) return
+        const anchors = collectAnchors()
+        if (anchors.length === 0) return
+        const line = sourceLineForPreviewViewport()
+        updateActiveOutlineFromLine(line)
+        const targetTop = editorScrollTopForLine(line)
+        if (Math.abs(editorScroller.scrollTop - targetTop) < 1) return
+        isSyncingScrollRef.current = true
+        editorScroller.scrollTop = targetTop
+        window.requestAnimationFrame(() => {
+          isSyncingScrollRef.current = false
+        })
+      })
+    }
 
-    editorScroller.addEventListener('scroll', handleEditorScroll, { passive: true })
-    previewScroller.addEventListener('scroll', handlePreviewScroll, { passive: true })
+    editorScroller.addEventListener('scroll', syncFromEditor, { passive: true })
+    previewScroller.addEventListener('scroll', syncFromPreview, { passive: true })
+    syncOutlineFromEditor()
 
     return () => {
-      editorScroller.removeEventListener('scroll', handleEditorScroll)
-      previewScroller.removeEventListener('scroll', handlePreviewScroll)
+      if (syncRaf !== null) {
+        window.cancelAnimationFrame(syncRaf)
+      }
+      editorScroller.removeEventListener('scroll', syncFromEditor)
+      previewScroller.removeEventListener('scroll', syncFromPreview)
     }
-  }, [viewMode, content])
+  }, [viewMode, content, outlineItems, updateActiveOutlineFromLine])
 
   return (
     <div className="app-container">
@@ -737,6 +1188,16 @@ function App() {
               <ViewModeIcon mode="preview" />
             </button>
           </div>
+          <button
+            type="button"
+            className={`mode-button outline-toolbar-toggle ${isOutlineVisible ? 'active' : ''}`}
+            onClick={() => setIsOutlineVisible((value) => !value)}
+            title={isOutlineVisible ? '隐藏大纲' : '显示大纲'}
+            aria-label={isOutlineVisible ? '隐藏大纲' : '显示大纲'}
+            aria-pressed={isOutlineVisible}
+          >
+            <OutlineToggleIcon visible={isOutlineVisible} />
+          </button>
           <div className="window-controls" aria-label="窗口控制">
             <button
               type="button"
@@ -786,9 +1247,12 @@ function App() {
         <div
           className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
           style={
-            openedFolders.length > 0
-              ? ({ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties)
-              : undefined
+            {
+              ...(openedFolders.length > 0
+                ? { '--sidebar-width': `${sidebarWidth}px` }
+                : {}),
+              '--outline-width': `${outlineWidth}px`,
+            } as React.CSSProperties
           }
         >
           {openedFolders.length > 0 && (
@@ -810,26 +1274,54 @@ function App() {
             </aside>
           )}
           <div className={`editor-preview-container mode-${viewMode}`}>
-            {(viewMode === 'edit' || viewMode === 'split') && (
-              <div
-                ref={editorPanelRef}
-                className="editor-panel"
-                style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
+            <div className="editor-preview-surface">
+              {(viewMode === 'edit' || viewMode === 'split') && (
+                <div
+                  ref={editorPanelRef}
+                  className="editor-panel"
+                  style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
+                >
+                  <Editor
+                    value={content}
+                    onChange={setContent}
+                    onReady={(view) => {
+                      editorViewRef.current = view
+                    }}
+                  />
+                </div>
+              )}
+              {viewMode === 'split' && (
+                <Resizer onResize={setLeftWidth} initialLeftWidth={leftWidth} />
+              )}
+              {(viewMode === 'preview' || viewMode === 'split') && (
+                <div
+                  ref={previewPanelRef}
+                  className="preview-panel"
+                  style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
+                >
+                  <Preview content={content} currentFile={currentFile} />
+                </div>
+              )}
+            </div>
+            {isOutlineVisible && (
+              <aside
+                className="outline-sidebar"
+                style={{ width: outlineWidth, flex: `0 0 ${outlineWidth}px` }}
               >
-                <Editor value={content} onChange={setContent} />
-              </div>
-            )}
-            {viewMode === 'split' && (
-              <Resizer onResize={setLeftWidth} initialLeftWidth={leftWidth} />
-            )}
-            {(viewMode === 'preview' || viewMode === 'split') && (
-              <div
-                ref={previewPanelRef}
-                className="preview-panel"
-                style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
-              >
-                <Preview content={content} currentFile={currentFile} />
-              </div>
+                <Outline
+                  items={outlineItems}
+                  activeItemId={activeOutlineId}
+                  onItemClick={handleOutlineItemClick}
+                />
+                <div
+                  className="outline-resizer"
+                  onPointerDown={handleOutlineResizeStart}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="调整大纲栏宽度"
+                  title="拖动调整大纲栏宽度"
+                />
+              </aside>
             )}
           </div>
         </div>

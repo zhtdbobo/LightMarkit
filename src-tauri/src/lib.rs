@@ -2,21 +2,45 @@ use base64::{engine::general_purpose, Engine as _};
 use encoding_rs::{Encoding, BIG5, GBK, SHIFT_JIS, UTF_16BE, UTF_16LE, WINDOWS_1252};
 use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
 use serde::{Deserialize, Serialize};
+use notify::{recommended_watcher, EventKind, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{env, process, sync::Mutex};
+use std::{env, process};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Emitter, Manager, State,
 };
 
-#[derive(Default)]
 struct FileState {
     current_file: Mutex<Option<PathBuf>>,
+    watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    watched_path: Mutex<Option<PathBuf>>,
+}
+
+fn same_file_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left_canonical), Ok(right_canonical)) => left_canonical == right_canonical,
+        _ => {
+            left.file_name() == right.file_name()
+                && left.parent().map(Path::as_os_str) == right.parent().map(Path::as_os_str)
+        }
+    }
+}
+
+fn is_relevant_watch_event(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +267,102 @@ async fn get_current_file(state: State<'_, FileState>) -> Result<Option<String>,
 async fn set_current_file(path: Option<String>, state: State<'_, FileState>) -> Result<(), String> {
     let mut current = state.current_file.lock().unwrap();
     *current = path.map(PathBuf::from);
+    Ok(())
+}
+
+#[tauri::command]
+async fn watch_current_file(
+    app: tauri::AppHandle,
+    state: State<'_, FileState>,
+) -> Result<(), String> {
+    let current_file = {
+        let current = state
+            .current_file
+            .lock()
+            .map_err(|_| "Failed to lock current file state".to_string())?;
+        current.clone()
+    };
+
+    let Some(path) = current_file else {
+        let mut watcher = state
+            .watcher
+            .lock()
+            .map_err(|_| "Failed to lock watcher state".to_string())?;
+        let mut watched_path = state
+            .watched_path
+            .lock()
+            .map_err(|_| "Failed to lock watched path state".to_string())?;
+        *watcher = None;
+        *watched_path = None;
+        return Ok(());
+    };
+
+    {
+        let watched_path = state
+            .watched_path
+            .lock()
+            .map_err(|_| "Failed to lock watched path state".to_string())?;
+        if watched_path.as_ref().is_some_and(|existing| same_file_path(existing, &path)) {
+            return Ok(());
+        }
+    }
+
+    let parent = path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .ok_or_else(|| "Failed to resolve parent directory for watched file".to_string())?
+        .to_path_buf();
+
+    if !parent.is_dir() {
+        return Err("Parent directory of watched file does not exist".to_string());
+    }
+
+    let app_handle = app.clone();
+    let watched_file = path.clone();
+    let mut watcher = recommended_watcher(move |result: notify::Result<notify::Event>| {
+        let event = match result {
+            Ok(event) => event,
+            Err(error) => {
+                eprintln!("File watcher error: {}", error);
+                return;
+            }
+        };
+
+        if !is_relevant_watch_event(&event.kind) {
+            return;
+        }
+
+        let should_refresh = event
+            .paths
+            .iter()
+            .any(|event_path| same_file_path(event_path, &watched_file));
+
+        if should_refresh {
+            let _ = app_handle.emit(
+                "file-changed",
+                watched_file.to_string_lossy().to_string(),
+            );
+        }
+    })
+    .map_err(|error| format!("Failed to create file watcher: {}", error))?;
+
+    watcher
+        .watch(&parent, RecursiveMode::NonRecursive)
+        .map_err(|error| format!("Failed to watch file directory: {}", error))?;
+
+    {
+        let mut watcher_guard = state
+            .watcher
+            .lock()
+            .map_err(|_| "Failed to lock watcher state".to_string())?;
+        let mut watched_path = state
+            .watched_path
+            .lock()
+            .map_err(|_| "Failed to lock watched path state".to_string())?;
+        *watcher_guard = Some(watcher);
+        *watched_path = Some(path);
+    }
+
     Ok(())
 }
 
@@ -872,6 +992,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(FileState {
             current_file: Mutex::new(initial_file),
+            watcher: Mutex::new(None),
+            watched_path: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             file_read,
@@ -879,6 +1001,7 @@ pub fn run() {
             read_image_as_data_url,
             get_current_file,
             set_current_file,
+            watch_current_file,
             scan_folder,
             export_html,
             export_pdf

@@ -16,6 +16,8 @@ export interface EditorProps {
   readOnly?: boolean
   /** 自定义类名 */
   className?: string
+  /** 编辑器就绪时回调 */
+  onReady?: (view: EditorView) => void
 }
 
 const Editor: React.FC<EditorProps> = ({
@@ -24,6 +26,7 @@ const Editor: React.FC<EditorProps> = ({
   onChange,
   readOnly = false,
   className = '',
+  onReady,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -56,6 +59,7 @@ const Editor: React.FC<EditorProps> = ({
     })
 
     viewRef.current = view
+    onReady?.(view)
 
     // 清理函数
     return () => {

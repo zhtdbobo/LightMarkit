@@ -1,6 +1,8 @@
 .preview-container {
   height: 100%;
-  padding: 2rem;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 1.25rem 1.5rem 2rem;
   overflow-y: auto;
   overflow-x: hidden;
   overflow-wrap: anywhere;
@@ -12,6 +14,19 @@
   background-color: #ffffff;
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
+}
+
+.preview-container > :first-child {
+  margin-top: 0;
+}
+
+.preview-container h1:first-child,
+.preview-container h2:first-child,
+.preview-container h3:first-child,
+.preview-container h4:first-child,
+.preview-container h5:first-child,
+.preview-container h6:first-child {
+  margin-top: 0;
 }
 
 .preview-container * {

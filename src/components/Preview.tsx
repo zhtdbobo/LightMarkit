@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   hydrateLocalImages,
   renderMarkdownToHtml,
@@ -14,6 +14,10 @@ interface PreviewProps {
 
 export function Preview({ content, currentFile = null, className = '' }: PreviewProps) {
   const previewRef = useRef<HTMLDivElement>(null)
+  const renderedHtml = useMemo(
+    () => renderMarkdownToHtml(content, { currentFile }),
+    [content, currentFile]
+  )
 
   useEffect(() => {
     const root = previewRef.current
@@ -22,13 +26,13 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
       return
     }
 
-    root.innerHTML = renderMarkdownToHtml(content, { currentFile })
+    root.innerHTML = renderedHtml
 
     void hydrateLocalImages(root, { currentFile })
     void renderMermaidDiagrams(root).catch((error) => {
       console.error('Mermaid rendering error:', error)
     })
-  }, [content, currentFile])
+  }, [renderedHtml, currentFile])
 
   return (
     <div

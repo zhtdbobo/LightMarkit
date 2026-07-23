@@ -403,6 +403,7 @@ body,
 }
 
 .editor-preview-container {
+  position: relative;
   display: flex;
   width: 100%;
   min-width: 0;
@@ -410,6 +411,42 @@ body,
   min-height: 0;
   overflow: hidden;
   background-color: #eef2f7;
+}
+
+.editor-preview-surface {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.outline-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 480px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #f7f9fc;
+  border-left: 1px solid #dde3ea;
+}
+
+.outline-toolbar-toggle {
+  margin-left: 4px;
+}
+
+.outline-resizer {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  bottom: 0;
+  z-index: 10;
+  width: 7px;
+  cursor: col-resize;
+  background: transparent;
 }
 
 /* 纯编辑模式 */
@@ -565,6 +602,20 @@ body,
 
   .editor-preview-container {
     background-color: #3e3e42;
+  }
+
+  .outline-sidebar {
+    border-left-color: #3e3e42;
+    background: #252526;
+  }
+
+  .outline-sidebar-header {
+    background: #252526;
+    border-bottom-color: #3e3e42;
+  }
+
+  .outline-sidebar-title {
+    color: #9e9e9e;
   }
 
   .editor-panel {

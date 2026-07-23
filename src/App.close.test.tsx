@@ -15,11 +15,16 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(),
 }))
 
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn().mockResolvedValue(vi.fn()),
+}))
+
 vi.mock('./utils/fileApi', () => ({
   fileRead: vi.fn(),
   fileWrite: vi.fn(),
   getCurrentFile: vi.fn(),
   setCurrentFile: vi.fn(),
+  watchCurrentFile: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./utils/exportApi', () => ({

@@ -175,6 +175,23 @@ md.validateLink = (url) => {
   return url.toLowerCase().startsWith('file:') || defaultValidateLink(url)
 }
 
+// 为块级节点写入源码行号，供分屏滚动同步使用
+md.core.ruler.push('source_line_attrs', (state) => {
+  for (const token of state.tokens) {
+    if (token.map && token.map.length >= 1 && token.type.endsWith('_open')) {
+      token.attrSet('data-source-line', String(token.map[0] + 1))
+    }
+
+    if (token.map && token.type === 'fence') {
+      token.attrSet('data-source-line', String(token.map[0] + 1))
+    }
+
+    if (token.map && token.type === 'html_block') {
+      token.attrSet('data-source-line', String(token.map[0] + 1))
+    }
+  }
+})
+
 // 添加 Mermaid 代码块处理
 const defaultFenceRenderer = md.renderer.rules.fence!
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -183,7 +200,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const info = token.info ? token.info.trim() : ''
 
   if (info === 'mermaid') {
-    return `<div class="mermaid">${md.utils.escapeHtml(code)}</div>`
+    const sourceLine = token.attrGet('data-source-line')
+    const sourceAttr = sourceLine ? ` data-source-line="${sourceLine}"` : ''
+    return `<div class="mermaid"${sourceAttr}>${md.utils.escapeHtml(code)}</div>`
   }
 
   return defaultFenceRenderer(tokens, idx, options, env, self)

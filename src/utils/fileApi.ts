@@ -33,3 +33,10 @@ export async function getCurrentFile(): Promise<string | null> {
 export async function setCurrentFile(path: string | null): Promise<void> {
   await invoke('set_current_file', { path })
 }
+
+/**
+ * 监听当前文件外部变更
+ */
+export async function watchCurrentFile(): Promise<void> {
+  await invoke('watch_current_file')
+}
