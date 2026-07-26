@@ -1,15 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
 import { fileRead, getCurrentFile } from './utils/fileApi'
+import packageInfo from '../package.json'
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
   save: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -64,6 +70,10 @@ describe('App', () => {
     vi.mocked(getCurrentWindow).mockReturnValue(
       mockWindow as unknown as ReturnType<typeof getCurrentWindow>
     )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('不应该在顶部栏渲染应用标题', () => {
@@ -124,7 +134,63 @@ describe('App', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: '文件' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '导出' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '关于' })).toBeInTheDocument()
     expect(screen.queryByText('视图')).not.toBeInTheDocument()
+  })
+
+  it('应该检查到新版本后使用代理地址下载更新', async () => {
+    const [major, minor, patch] = packageInfo.version.split('.').map(Number)
+    const latestVersion = `${major}.${minor}.${patch + 1}`
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ tag_name: `v${latestVersion}` }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '关于' }))
+
+    expect(screen.getByRole('dialog', { name: 'LightMarkit' })).toBeVisible()
+    expect(screen.getByText(`版本 ${packageInfo.version}`)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '专注写作' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '轻巧高效' })).toBeInTheDocument()
+    expect(screen.getByText('MIT License')).toBeInTheDocument()
+    expect(screen.getByText('软件更新')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'GitHub' }))
+    expect(openUrl).toHaveBeenCalledWith('https://github.com/zhtdbobo/LightMarkit')
+
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+
+    expect(await screen.findByText(`发现新版本 v${latestVersion}`)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.github.com/repos/zhtdbobo/LightMarkit/releases/latest',
+      expect.objectContaining({ cache: 'no-store' })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: `下载 v${latestVersion}` }))
+    expect(openUrl).toHaveBeenCalledWith(
+      `https://gh-proxy.com/github.com/zhtdbobo/LightMarkit/releases/download/v${latestVersion}/LightMarkit_${latestVersion}_x64-setup.exe`
+    )
+  })
+
+  it('当前版本最新时应该显示提示且不提供下载按钮', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ tag_name: `v${packageInfo.version}` }),
+      })
+    )
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '关于' }))
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+
+    expect(await screen.findByText(`当前已是最新版本 v${packageInfo.version}`)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /下载 v/ })).not.toBeInTheDocument()
   })
 
   it('应该渲染自定义窗口控制按钮', () => {
@@ -194,9 +260,7 @@ describe('App', () => {
   })
 
   it('应该保留多次打开的文件夹并显示文件夹名称', async () => {
-    vi.mocked(open)
-      .mockResolvedValueOnce('C:\\notes\\方案')
-      .mockResolvedValueOnce('D:\\work\\归档')
+    vi.mocked(open).mockResolvedValueOnce('C:\\notes\\方案').mockResolvedValueOnce('D:\\work\\归档')
     vi.mocked(scanFolder).mockImplementation(async (folderPath) => {
       if (folderPath === 'C:\\notes\\方案') {
         return [

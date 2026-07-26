@@ -2,26 +2,46 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { EditorView } from 'codemirror'
 import { listen } from '@tauri-apps/api/event'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
 import { Resizer } from './components/Resizer'
 import { FileList, type FolderGroup } from './components/FileList'
 import { Outline } from './components/Outline'
-import { fileRead, fileWrite, getCurrentFile, setCurrentFile, watchCurrentFile } from './utils/fileApi'
+import {
+  fileRead,
+  fileWrite,
+  getCurrentFile,
+  setCurrentFile,
+  watchCurrentFile,
+} from './utils/fileApi'
 import { scanFolder } from './utils/folderApi'
 import { exportHtml, exportPdf } from './utils/exportApi'
 import { extractMarkdownOutline, type OutlineItem } from './utils/outline'
 import { renderMarkdownToExportHtml } from './utils/markdownRenderer'
 import { resolvePreviewSourceLine } from './utils/scrollSync'
+import appIconUrl from '../src-tauri/icons/icon.png'
+import packageInfo from '../package.json'
 import './App.css'
 
 const APP_STATE_STORAGE_KEY = 'lightmarkit.app-state.v1'
+const APP_VERSION = packageInfo.version
+const REPOSITORY_URL = 'https://github.com/zhtdbobo/LightMarkit'
+const LATEST_RELEASE_URL = 'https://api.github.com/repos/zhtdbobo/LightMarkit/releases/latest'
+const UPDATE_DOWNLOAD_BASE_URL =
+  'https://gh-proxy.com/github.com/zhtdbobo/LightMarkit/releases/download'
 
 type ViewMode = 'edit' | 'split' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
 type ToolbarMenu = 'file' | 'export' | null
 type ExportExtension = 'html' | 'pdf' | 'md'
+type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'latest'; version: string }
+  | { state: 'available'; version: string; downloadUrl: string }
+  | { state: 'error'; message: string }
 
 const FALLBACK_DOCUMENT_NAME = 'LightMarkit Document'
 const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i
@@ -31,6 +51,28 @@ const MAX_SIDEBAR_WIDTH = 520
 const MIN_OUTLINE_WIDTH = 220
 const MAX_OUTLINE_WIDTH = 480
 const APP_LAYOUT_STORAGE_KEY = 'lightmarkit.layout.v1'
+
+function normalizeVersion(tagName: unknown): string | null {
+  if (typeof tagName !== 'string') return null
+  return tagName.match(/^v?(\d+\.\d+\.\d+)$/)?.[1] ?? null
+}
+
+function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
+  const latest = latestVersion.split('.').map(Number)
+  const current = currentVersion.split('.').map(Number)
+
+  for (let index = 0; index < Math.max(latest.length, current.length); index += 1) {
+    const latestPart = latest[index] ?? 0
+    const currentPart = current[index] ?? 0
+    if (latestPart !== currentPart) return latestPart > currentPart
+  }
+
+  return false
+}
+
+function createUpdateDownloadUrl(version: string): string {
+  return `${UPDATE_DOWNLOAD_BASE_URL}/v${version}/LightMarkit_${version}_x64-setup.exe`
+}
 
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
@@ -215,6 +257,8 @@ function App() {
     }
   })
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
+  const [isAboutOpen, setIsAboutOpen] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
   const [fileError, setFileError] = useState<string | null>(null)
   const outlineItems = useMemo(() => extractMarkdownOutline(content), [content])
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null)
@@ -245,10 +289,7 @@ function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(
-        APP_LAYOUT_STORAGE_KEY,
-        JSON.stringify({ sidebarWidth, outlineWidth })
-      )
+      localStorage.setItem(APP_LAYOUT_STORAGE_KEY, JSON.stringify({ sidebarWidth, outlineWidth }))
     } catch {
       // ignore storage failures
     }
@@ -338,7 +379,8 @@ function App() {
       })
 
       const selectedFolders = (Array.isArray(selected) ? selected : [selected]).filter(
-        (folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0
+        (folderPath): folderPath is string =>
+          typeof folderPath === 'string' && folderPath.length > 0
       )
 
       if (selectedFolders.length > 0) {
@@ -788,6 +830,7 @@ function App() {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpenMenu(null)
+        setIsAboutOpen(false)
       }
     }
 
@@ -923,7 +966,8 @@ function App() {
     }
 
     const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
-    const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+    const previewScroller =
+      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
     const view = editorViewRef.current
 
     const refreshHighlight = () => {
@@ -971,7 +1015,8 @@ function App() {
     }
 
     const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
-    const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+    const previewScroller =
+      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
     const view = editorViewRef.current
 
     if (!editorScroller || !previewScroller || !view) {
@@ -1002,7 +1047,8 @@ function App() {
       if (anchors.length === 0) return 0
       if (line <= anchors[0].line) return Math.max(0, anchors[0].top)
       const last = anchors[anchors.length - 1]
-      if (line >= last.line) return Math.max(0, previewScroller.scrollHeight - previewScroller.clientHeight)
+      if (line >= last.line)
+        return Math.max(0, previewScroller.scrollHeight - previewScroller.clientHeight)
 
       for (let i = 0; i < anchors.length - 1; i += 1) {
         const a = anchors[i]
@@ -1086,6 +1132,51 @@ function App() {
     }
   }, [viewMode, content, outlineItems, updateActiveOutlineFromLine])
 
+  const handleCheckForUpdates = async () => {
+    setUpdateStatus({ state: 'checking' })
+
+    try {
+      const response = await fetch(LATEST_RELEASE_URL, {
+        cache: 'no-store',
+        headers: { Accept: 'application/vnd.github+json' },
+      })
+
+      if (!response.ok) {
+        throw new Error(`GitHub API returned ${response.status}`)
+      }
+
+      const release = (await response.json()) as { tag_name?: unknown }
+      const latestVersion = normalizeVersion(release.tag_name)
+      if (!latestVersion) {
+        throw new Error('Invalid release version')
+      }
+
+      if (isNewerVersion(latestVersion, APP_VERSION)) {
+        setUpdateStatus({
+          state: 'available',
+          version: latestVersion,
+          downloadUrl: createUpdateDownloadUrl(latestVersion),
+        })
+      } else {
+        setUpdateStatus({ state: 'latest', version: APP_VERSION })
+      }
+    } catch (error) {
+      console.error('检查更新失败', error)
+      setUpdateStatus({ state: 'error', message: '检查更新失败，请确认网络连接后重试。' })
+    }
+  }
+
+  const handleDownloadUpdate = async () => {
+    if (updateStatus.state !== 'available') return
+
+    try {
+      await openUrl(updateStatus.downloadUrl)
+    } catch (error) {
+      console.error('打开更新下载地址失败', error)
+      setUpdateStatus({ state: 'error', message: '无法打开下载地址，请稍后重试。' })
+    }
+  }
+
   return (
     <div className="app-container">
       <header className="app-header" ref={headerActionsRef} onPointerDown={handleDragWindow}>
@@ -1155,6 +1246,20 @@ function App() {
               </button>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="menu-trigger"
+            onClick={() => {
+              setOpenMenu(null)
+              setIsAboutOpen(true)
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={isAboutOpen}
+            aria-label="关于"
+          >
+            关于
+          </button>
         </nav>
 
         <div className="header-actions" aria-label="文档工具栏">
@@ -1248,9 +1353,7 @@ function App() {
           className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
           style={
             {
-              ...(openedFolders.length > 0
-                ? { '--sidebar-width': `${sidebarWidth}px` }
-                : {}),
+              ...(openedFolders.length > 0 ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
               '--outline-width': `${outlineWidth}px`,
             } as React.CSSProperties
           }
@@ -1326,6 +1429,125 @@ function App() {
           </div>
         </div>
       </main>
+      {isAboutOpen && (
+        <div
+          className="about-dialog-backdrop"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsAboutOpen(false)
+            }
+          }}
+        >
+          <section
+            className="about-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="about-dialog-title"
+          >
+            <button
+              type="button"
+              className="about-dialog-close"
+              onClick={() => setIsAboutOpen(false)}
+              aria-label="关闭关于窗口"
+              title="关闭"
+              autoFocus
+            >
+              ×
+            </button>
+            <div className="about-dialog-hero">
+              <div className="about-dialog-logo-frame">
+                <img className="about-dialog-logo" src={appIconUrl} alt="LightMarkit 图标" />
+              </div>
+              <h2 id="about-dialog-title">LightMarkit</h2>
+              <p className="about-dialog-version">版本 {APP_VERSION}</p>
+              <p className="about-dialog-description">
+                一款轻量、简洁的 Markdown 编辑器，支持实时预览、文档大纲、Mermaid 图表与多格式导出。
+              </p>
+            </div>
+
+            <div className="about-feature-grid" aria-label="产品特点">
+              <div className="about-feature-card">
+                <span className="about-feature-icon" aria-hidden="true">
+                  #
+                </span>
+                <div>
+                  <h3>专注写作</h3>
+                  <p>简洁的 Markdown 编辑与实时预览</p>
+                </div>
+              </div>
+              <div className="about-feature-card">
+                <span className="about-feature-icon" aria-hidden="true">
+                  ↔
+                </span>
+                <div>
+                  <h3>轻巧高效</h3>
+                  <p>基于 Tauri 构建，快速启动、低资源占用</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="about-details">
+              <div className="about-detail-row">
+                <span className="about-detail-label">开源许可</span>
+                <span className="about-detail-value">MIT License</span>
+              </div>
+              <div className="about-detail-row">
+                <span className="about-detail-label">项目主页</span>
+                <a
+                  href={REPOSITORY_URL}
+                  className="about-repository-link"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    void openUrl(REPOSITORY_URL)
+                  }}
+                >
+                  GitHub
+                </a>
+              </div>
+              <div className="about-detail-row about-update-row">
+                <div>
+                  <span className="about-detail-label">软件更新</span>
+                  {updateStatus.state === 'latest' && (
+                    <p role="status" className="about-update-status latest">
+                      当前已是最新版本 v{updateStatus.version}
+                    </p>
+                  )}
+                  {updateStatus.state === 'available' && (
+                    <p role="status" className="about-update-status available">
+                      发现新版本 v{updateStatus.version}
+                    </p>
+                  )}
+                  {updateStatus.state === 'error' && (
+                    <p role="alert" className="about-update-status error">
+                      {updateStatus.message}
+                    </p>
+                  )}
+                </div>
+                {updateStatus.state === 'available' ? (
+                  <button
+                    type="button"
+                    className="about-update-button"
+                    onClick={() => void handleDownloadUpdate()}
+                  >
+                    下载 v{updateStatus.version}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="about-update-button secondary"
+                    onClick={() => void handleCheckForUpdates()}
+                    disabled={updateStatus.state === 'checking'}
+                  >
+                    {updateStatus.state === 'checking' ? '正在检查…' : '检查更新'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <p className="about-dialog-footer">© 2026 zhtdbobo · 让 Markdown 写作更轻松</p>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
