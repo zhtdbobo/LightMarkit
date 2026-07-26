@@ -2,6 +2,23 @@
 
 本项目的重要变更记录在此文件中。
 
+## [0.3.1] - 2026-07-26
+
+### 新增
+
+- 顶部菜单新增“关于”入口，展示应用版本、产品特点、开源许可和项目主页。
+- 支持通过 GitHub Release 检查最新版本，并在发现新版本后提供 Windows x64 安装包下载。
+
+### 改进
+
+- 关于界面采用居中产品信息、特性卡片和详情列表布局，并适配明暗主题及窄窗口。
+- 更新安装包通过 `gh-proxy.com` 代理地址下载，改善 GitHub Release 的访问体验。
+- 外链权限限制为 LightMarkit 项目主页和版本化安装包地址。
+
+### 修复
+
+- 当前版本已是最新版时不再提供重复下载，而是显示明确的最新版本提示。
+
 ## [0.3.0] - 2026-07-24
 
 ### 新增
@@ -47,6 +64,7 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
+[0.3.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.1.0
