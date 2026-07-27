@@ -21,4 +21,39 @@ describe('extractMarkdownOutline', () => {
   it('ignores empty heading titles', () => {
     expect(extractMarkdownOutline('#   ')).toEqual([])
   })
+
+  it('ignores headings inside fenced code blocks', () => {
+    const markdown = [
+      '# Visible',
+      '```markdown',
+      '# Hidden',
+      '## Also hidden',
+      '```',
+      '## Visible again',
+    ].join('\n')
+
+    expect(extractMarkdownOutline(markdown)).toEqual([
+      { id: 'outline-0-1', text: 'Visible', level: 1, line: 1 },
+      { id: 'outline-5-2', text: 'Visible again', level: 2, line: 6 },
+    ])
+  })
+
+  it('supports tilde fences, longer fences, and unclosed fences', () => {
+    const markdown = [
+      '~~~text',
+      '# Hidden by tilde fence',
+      '~~~',
+      '````',
+      '```',
+      '# Hidden until a matching-length fence',
+      '````',
+      '# Visible',
+      '```text',
+      '# Hidden in unclosed fence',
+    ].join('\n')
+
+    expect(extractMarkdownOutline(markdown)).toEqual([
+      { id: 'outline-7-1', text: 'Visible', level: 1, line: 8 },
+    ])
+  })
 })

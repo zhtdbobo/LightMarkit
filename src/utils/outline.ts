@@ -12,9 +12,34 @@ export type OutlineItem = {
 export function extractMarkdownOutline(content: string): OutlineItem[] {
   const items: OutlineItem[] = []
   const lines = content.split('\n')
+  let activeFence: { marker: '`' | '~'; length: number } | null = null
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+
+    if (activeFence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === activeFence.marker &&
+        fenceMatch[1].length >= activeFence.length &&
+        /^[ \t]*\r?$/.test(fenceMatch[2])
+      ) {
+        activeFence = null
+      }
+      continue
+    }
+
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0] as '`' | '~'
+      const isValidOpeningFence = marker === '~' || !fenceMatch[2].includes('`')
+
+      if (isValidOpeningFence) {
+        activeFence = { marker, length: fenceMatch[1].length }
+        continue
+      }
+    }
+
     const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line)
 
     if (!headingMatch) {
