@@ -2,6 +2,23 @@
 
 本项目的重要变更记录在此文件中。
 
+## [0.3.3] - 2026-07-28
+
+### 新增
+
+- 编辑器左侧显示稳定、清晰的行号栏，便于定位 Markdown 源文档内容。
+- 关于界面支持通过 Tauri Updater 在应用内检查、下载和安装更新，并显示下载百分比。
+
+### 改进
+
+- 更新检查和安装包下载统一通过 `gh-proxy.com` 镜像传输，改善 GitHub Release 的访问体验。
+- 推送 `v*` 标签后由 GitHub Actions 自动构建 NSIS 安装包、签名和 `latest.json`，并创建草稿 Release。
+
+### 安全
+
+- 更新安装包必须通过内置公钥完成签名验证，网络、签名或安装失败时停止更新，不安装未经验证的文件。
+- Windows 更新使用 NSIS 被动模式安装，完成后自动重启 LightMarkit。
+
 ## [0.3.2] - 2026-07-27
 
 ### 修复
@@ -70,6 +87,7 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
+[0.3.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.2.0...v0.3.0

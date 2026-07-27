@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag and application versions
+        shell: pwsh
+        run: |
+          $tagVersion = '${{ github.ref_name }}'.TrimStart('v')
+          $packageVersion = (Get-Content package.json | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($tagVersion -ne $packageVersion -or $tagVersion -ne $tauriVersion) {
+            throw "Tag version $tagVersion must match package.json ($packageVersion) and tauri.conf.json ($tauriVersion)."
+          }
+
+      - name: Build signed updater artifacts and draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'LightMarkit ${{ github.ref_name }}'
+          releaseBody: 'See CHANGELOG.md for release details.'
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --target x86_64-pc-windows-msvc
+
+      - name: Route updater downloads through GitHub mirror
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $manifestDirectory = Join-Path $env:RUNNER_TEMP 'lightmarkit-updater'
+          New-Item -ItemType Directory -Path $manifestDirectory -Force | Out-Null
+          gh release download '${{ github.ref_name }}' --pattern latest.json --dir $manifestDirectory
+
+          $manifestPath = Join-Path $manifestDirectory 'latest.json'
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          foreach ($platform in $manifest.platforms.PSObject.Properties) {
+            $downloadUrl = [string]$platform.Value.url
+            if (-not $downloadUrl.StartsWith('https://github.com/')) {
+              throw "Unexpected updater download URL: $downloadUrl"
+            }
+
+            $platform.Value.url = 'https://gh-proxy.com/' + $downloadUrl.Substring('https://'.Length)
+          }
+
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding utf8 -NoNewline
+          gh release upload '${{ github.ref_name }}' $manifestPath --clobber

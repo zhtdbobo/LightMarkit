@@ -3,6 +3,8 @@ import { EditorView } from 'codemirror'
 import { listen } from '@tauri-apps/api/event'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { relaunch } from '@tauri-apps/plugin-process'
+import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
@@ -28,9 +30,7 @@ import './App.css'
 const APP_STATE_STORAGE_KEY = 'lightmarkit.app-state.v1'
 const APP_VERSION = packageInfo.version
 const REPOSITORY_URL = 'https://github.com/zhtdbobo/LightMarkit'
-const LATEST_RELEASE_URL = 'https://api.github.com/repos/zhtdbobo/LightMarkit/releases/latest'
-const UPDATE_DOWNLOAD_BASE_URL =
-  'https://gh-proxy.com/github.com/zhtdbobo/LightMarkit/releases/download'
+const UPDATE_CHECK_TIMEOUT_MS = 30_000
 
 type ViewMode = 'edit' | 'split' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
@@ -40,7 +40,9 @@ type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
   | { state: 'latest'; version: string }
-  | { state: 'available'; version: string; downloadUrl: string }
+  | { state: 'available'; version: string }
+  | { state: 'downloading'; version: string; progress: number }
+  | { state: 'installing'; version: string }
   | { state: 'error'; message: string }
 
 const FALLBACK_DOCUMENT_NAME = 'LightMarkit Document'
@@ -51,28 +53,6 @@ const MAX_SIDEBAR_WIDTH = 520
 const MIN_OUTLINE_WIDTH = 220
 const MAX_OUTLINE_WIDTH = 480
 const APP_LAYOUT_STORAGE_KEY = 'lightmarkit.layout.v1'
-
-function normalizeVersion(tagName: unknown): string | null {
-  if (typeof tagName !== 'string') return null
-  return tagName.match(/^v?(\d+\.\d+\.\d+)$/)?.[1] ?? null
-}
-
-function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
-  const latest = latestVersion.split('.').map(Number)
-  const current = currentVersion.split('.').map(Number)
-
-  for (let index = 0; index < Math.max(latest.length, current.length); index += 1) {
-    const latestPart = latest[index] ?? 0
-    const currentPart = current[index] ?? 0
-    if (latestPart !== currentPart) return latestPart > currentPart
-  }
-
-  return false
-}
-
-function createUpdateDownloadUrl(version: string): string {
-  return `${UPDATE_DOWNLOAD_BASE_URL}/v${version}/LightMarkit_${version}_x64-setup.exe`
-}
 
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
@@ -115,6 +95,20 @@ function getErrorMessage(error: unknown): string {
   }
 
   return '未知错误'
+}
+
+function getUpdateErrorMessage(error: unknown): string {
+  const message = getErrorMessage(error)
+
+  if (/signature|public key|base64|minisign/i.test(message)) {
+    return '更新签名验证失败，已停止安装。'
+  }
+
+  if (/network|request|fetch|timeout|timed out|connect|dns|http status/i.test(message)) {
+    return '连接更新服务器失败，请检查网络后重试。'
+  }
+
+  return `更新失败，未安装任何文件。${message ? ` ${message}` : ''}`
 }
 
 function ViewModeIcon({ mode }: { mode: ViewMode }) {
@@ -279,6 +273,7 @@ function App() {
   const editorPanelRef = useRef<HTMLDivElement | null>(null)
   const previewPanelRef = useRef<HTMLDivElement | null>(null)
   const editorViewRef = useRef<EditorView | null>(null)
+  const availableUpdateRef = useRef<Update | null>(null)
   const isSyncingScrollRef = useRef(false)
   const isProgrammaticCloseRef = useRef(false)
   const activeOutlineIdRef = useRef<string | null>(null)
@@ -1136,44 +1131,55 @@ function App() {
     setUpdateStatus({ state: 'checking' })
 
     try {
-      const response = await fetch(LATEST_RELEASE_URL, {
-        cache: 'no-store',
-        headers: { Accept: 'application/vnd.github+json' },
-      })
+      await availableUpdateRef.current?.close()
+      availableUpdateRef.current = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS })
 
-      if (!response.ok) {
-        throw new Error(`GitHub API returned ${response.status}`)
-      }
-
-      const release = (await response.json()) as { tag_name?: unknown }
-      const latestVersion = normalizeVersion(release.tag_name)
-      if (!latestVersion) {
-        throw new Error('Invalid release version')
-      }
-
-      if (isNewerVersion(latestVersion, APP_VERSION)) {
-        setUpdateStatus({
-          state: 'available',
-          version: latestVersion,
-          downloadUrl: createUpdateDownloadUrl(latestVersion),
-        })
+      if (availableUpdateRef.current) {
+        setUpdateStatus({ state: 'available', version: availableUpdateRef.current.version })
       } else {
         setUpdateStatus({ state: 'latest', version: APP_VERSION })
       }
     } catch (error) {
       console.error('检查更新失败', error)
-      setUpdateStatus({ state: 'error', message: '检查更新失败，请确认网络连接后重试。' })
+      availableUpdateRef.current = null
+      setUpdateStatus({ state: 'error', message: getUpdateErrorMessage(error) })
     }
   }
 
-  const handleDownloadUpdate = async () => {
-    if (updateStatus.state !== 'available') return
+  const handleInstallUpdate = async () => {
+    const update = availableUpdateRef.current
+    if (updateStatus.state !== 'available' || !update) return
+
+    const version = update.version
+    let downloadedBytes = 0
+    let contentLength: number | undefined
+    setUpdateStatus({ state: 'downloading', version, progress: 0 })
 
     try {
-      await openUrl(updateStatus.downloadUrl)
+      await update.downloadAndInstall((event: DownloadEvent) => {
+        if (event.event === 'Started') {
+          downloadedBytes = 0
+          contentLength = event.data.contentLength
+          setUpdateStatus({ state: 'downloading', version, progress: 0 })
+          return
+        }
+
+        if (event.event === 'Progress') {
+          downloadedBytes += event.data.chunkLength
+          const progress = contentLength
+            ? Math.min(99, Math.round((downloadedBytes / contentLength) * 100))
+            : 0
+          setUpdateStatus({ state: 'downloading', version, progress })
+          return
+        }
+
+        setUpdateStatus({ state: 'installing', version })
+      })
+
+      await relaunch()
     } catch (error) {
-      console.error('打开更新下载地址失败', error)
-      setUpdateStatus({ state: 'error', message: '无法打开下载地址，请稍后重试。' })
+      console.error('下载或安装更新失败', error)
+      setUpdateStatus({ state: 'error', message: getUpdateErrorMessage(error) })
     }
   }
 
@@ -1517,6 +1523,21 @@ function App() {
                       发现新版本 v{updateStatus.version}
                     </p>
                   )}
+                  {updateStatus.state === 'downloading' && (
+                    <div className="about-update-progress" role="status" aria-live="polite">
+                      <span>
+                        正在下载 v{updateStatus.version}：{updateStatus.progress}%
+                      </span>
+                      <progress max="100" value={updateStatus.progress}>
+                        {updateStatus.progress}%
+                      </progress>
+                    </div>
+                  )}
+                  {updateStatus.state === 'installing' && (
+                    <p role="status" className="about-update-status available">
+                      下载完成，正在验证签名并安装 v{updateStatus.version}…
+                    </p>
+                  )}
                   {updateStatus.state === 'error' && (
                     <p role="alert" className="about-update-status error">
                       {updateStatus.message}
@@ -1527,9 +1548,17 @@ function App() {
                   <button
                     type="button"
                     className="about-update-button"
-                    onClick={() => void handleDownloadUpdate()}
+                    onClick={() => void handleInstallUpdate()}
                   >
-                    下载 v{updateStatus.version}
+                    下载并安装
+                  </button>
+                ) : updateStatus.state === 'downloading' ? (
+                  <button type="button" className="about-update-button" disabled>
+                    下载中 {updateStatus.progress}%
+                  </button>
+                ) : updateStatus.state === 'installing' ? (
+                  <button type="button" className="about-update-button" disabled>
+                    正在安装…
                   </button>
                 ) : (
                   <button

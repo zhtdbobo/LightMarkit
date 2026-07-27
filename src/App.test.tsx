@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { relaunch } from '@tauri-apps/plugin-process'
+import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
@@ -16,6 +18,14 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
   openUrl: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-process', () => ({
+  relaunch: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-updater', () => ({
+  check: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -67,6 +77,8 @@ describe('App', () => {
     vi.mocked(scanFolder).mockResolvedValue([])
     vi.mocked(getCurrentFile).mockResolvedValue(null)
     vi.mocked(fileRead).mockResolvedValue('')
+    vi.mocked(check).mockResolvedValue(null)
+    vi.mocked(relaunch).mockResolvedValue(undefined)
     vi.mocked(getCurrentWindow).mockReturnValue(
       mockWindow as unknown as ReturnType<typeof getCurrentWindow>
     )
@@ -138,15 +150,20 @@ describe('App', () => {
     expect(screen.queryByText('视图')).not.toBeInTheDocument()
   })
 
-  it('应该检查到新版本后使用代理地址下载更新', async () => {
+  it('应该通过 Tauri Updater 检查、下载并安装新版本', async () => {
     const [major, minor, patch] = packageInfo.version.split('.').map(Number)
     const latestVersion = `${major}.${minor}.${patch + 1}`
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ tag_name: `v${latestVersion}` }),
+    const downloadAndInstall = vi.fn(async (onEvent?: (event: DownloadEvent) => void) => {
+      onEvent?.({ event: 'Started', data: { contentLength: 100 } })
+      onEvent?.({ event: 'Progress', data: { chunkLength: 50 } })
+      onEvent?.({ event: 'Progress', data: { chunkLength: 50 } })
+      onEvent?.({ event: 'Finished' })
     })
-    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(check).mockResolvedValue({
+      version: latestVersion,
+      downloadAndInstall,
+      close: vi.fn(),
+    } as unknown as Update)
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
@@ -164,33 +181,43 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
 
     expect(await screen.findByText(`发现新版本 v${latestVersion}`)).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.github.com/repos/zhtdbobo/LightMarkit/releases/latest',
-      expect.objectContaining({ cache: 'no-store' })
-    )
+    expect(check).toHaveBeenCalledWith({ timeout: 30_000 })
 
-    fireEvent.click(screen.getByRole('button', { name: `下载 v${latestVersion}` }))
-    expect(openUrl).toHaveBeenCalledWith(
-      `https://gh-proxy.com/github.com/zhtdbobo/LightMarkit/releases/download/v${latestVersion}/LightMarkit_${latestVersion}_x64-setup.exe`
-    )
+    fireEvent.click(screen.getByRole('button', { name: '下载并安装' }))
+
+    await waitFor(() => expect(downloadAndInstall).toHaveBeenCalledTimes(1))
+    expect(
+      await screen.findByText(`下载完成，正在验证签名并安装 v${latestVersion}…`)
+    ).toBeInTheDocument()
+    expect(relaunch).toHaveBeenCalledTimes(1)
   })
 
   it('当前版本最新时应该显示提示且不提供下载按钮', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ tag_name: `v${packageInfo.version}` }),
-      })
-    )
+    vi.mocked(check).mockResolvedValue(null)
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
 
     expect(await screen.findByText(`当前已是最新版本 v${packageInfo.version}`)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /下载 v/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '下载并安装' })).not.toBeInTheDocument()
+  })
+
+  it('更新签名验证失败时应该停止并显示错误', async () => {
+    const downloadAndInstall = vi.fn().mockRejectedValue(new Error('Signature verification failed'))
+    vi.mocked(check).mockResolvedValue({
+      version: '99.0.0',
+      downloadAndInstall,
+      close: vi.fn(),
+    } as unknown as Update)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '关于' }))
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+    fireEvent.click(await screen.findByRole('button', { name: '下载并安装' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('更新签名验证失败，已停止安装。')
+    expect(relaunch).not.toHaveBeenCalled()
   })
 
   it('应该渲染自定义窗口控制按钮', () => {

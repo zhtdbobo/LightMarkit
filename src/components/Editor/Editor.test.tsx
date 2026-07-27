@@ -131,5 +131,17 @@ describe('Editor', () => {
       expect(container.textContent).toContain('Line 2')
       expect(container.textContent).toContain('Line 3')
     })
+
+    it('应该在编辑区左侧显示行号', () => {
+      render(<Editor initialValue={'Line 1\nLine 2\nLine 3'} />)
+
+      const lineNumberGutter = screen
+        .getByTestId('editor-container')
+        .querySelector('.cm-lineNumbers')
+
+      expect(lineNumberGutter).toBeInTheDocument()
+      expect(lineNumberGutter?.textContent).toContain('1')
+      expect(lineNumberGutter?.textContent).toContain('3')
+    })
   })
 })
