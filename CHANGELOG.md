@@ -2,6 +2,12 @@
 
 本项目的重要变更记录在此文件中。
 
+## [0.3.2] - 2026-07-27
+
+### 修复
+
+- 文档大纲不再收录代码围栏内的 Markdown 标题，并正确处理反引号、波浪线、不同围栏长度和未闭合围栏。
+
 ## [0.3.1] - 2026-07-26
 
 ### 新增
@@ -64,6 +70,7 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
+[0.3.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.1.0...v0.2.0
