@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.3.4] - 2026-07-28
+
+### 新增
+
+- 预览区代码块支持折叠与展开，折叠后显示语言、首个非空代码行和总行数摘要。
+
+### 构建
+
+- 发布工作流同时构建 Windows x64 NSIS 安装包和 macOS Universal DMG。
+- 发布前校验 README、前端、Rust 与 Tauri 配置中的版本号，防止文档或版本信息漏更新。
+
 本项目的重要变更记录在此文件中。
 
 ## [0.3.3] - 2026-07-28
@@ -87,6 +100,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.0...v0.3.1

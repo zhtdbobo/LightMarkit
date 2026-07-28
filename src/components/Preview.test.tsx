@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Preview } from './Preview'
 
 describe('Preview', () => {
@@ -227,5 +228,50 @@ function hello() {
     expect(container.querySelector('pre code')).toBeInTheDocument()
     expect(container.querySelector('blockquote')).toBeInTheDocument()
     expect(container.querySelector('s')).toBeInTheDocument()
+  })
+  it('should collapse and expand preview code blocks', async () => {
+    const user = userEvent.setup()
+    render(<Preview content={'```typescript\n\nconst answer = 42\nconsole.log(answer)\n```'} />)
+
+    const container = screen.getByTestId('preview-container')
+    const codeBlock = container.querySelector('pre')
+    const collapseButton = screen.getByRole('button', { name: '折叠代码块' })
+
+    expect(codeBlock).not.toHaveAttribute('hidden')
+    expect(collapseButton).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(collapseButton)
+
+    expect(codeBlock).toHaveAttribute('hidden')
+    expect(container.querySelector('.preview-code-language')).toHaveTextContent('TS')
+    expect(container.querySelector('.preview-code-first-line')).toHaveTextContent(
+      'const answer = 42'
+    )
+    expect(container.querySelector('.preview-code-line-count')).toHaveTextContent('3 行')
+    expect(screen.getByRole('button', { name: '展开代码块' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+
+    await user.click(screen.getByRole('button', { name: '展开代码块' }))
+
+    expect(codeBlock).not.toHaveAttribute('hidden')
+  })
+
+  it('should keep a code block collapsed when the preview refreshes', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<Preview content={'```ts\nconst answer = 42\n```'} />)
+
+    await user.click(screen.getByRole('button', { name: '折叠代码块' }))
+    rerender(<Preview content={'```ts\nconst answer = 43\n```\n\nMore text'} />)
+
+    expect(screen.getByTestId('preview-container').querySelector('pre')).toHaveAttribute('hidden')
+    expect(
+      screen.getByTestId('preview-container').querySelector('.preview-code-first-line')
+    ).toHaveTextContent('const answer = 43')
+    expect(screen.getByRole('button', { name: '展开代码块' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
   })
 })

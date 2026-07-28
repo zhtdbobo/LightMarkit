@@ -129,6 +129,115 @@
   border-radius: 6px;
 }
 
+.preview-container .preview-code-block {
+  position: relative;
+  min-width: 0;
+  margin: 1em 0;
+}
+
+.preview-container .preview-code-block pre {
+  padding-right: 3.25rem;
+  margin: 0;
+}
+
+.preview-container .preview-code-block.is-collapsed {
+  box-sizing: border-box;
+  height: 42px;
+  background-color: #f7f7f7;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+}
+
+.preview-container .preview-code-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 3.25rem 0 0.75rem;
+  color: #555555;
+}
+
+.preview-container .preview-code-summary[hidden] {
+  display: none;
+}
+
+.preview-container .preview-code-language {
+  flex: 0 1 auto;
+  max-width: 6rem;
+  padding: 1px 5px;
+  overflow: hidden;
+  color: #444444;
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-color: #e8e8e8;
+  border-radius: 3px;
+}
+
+.preview-container .preview-code-first-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-container .preview-code-line-count {
+  flex: none;
+  color: #777777;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.preview-container .preview-code-toggle {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #555555;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid #d5d5d5;
+  border-radius: 4px;
+  place-items: center;
+}
+
+.preview-container .preview-code-toggle::before {
+  width: 7px;
+  height: 7px;
+  content: '';
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(2px) rotate(225deg);
+}
+
+.preview-container .preview-code-toggle:hover {
+  color: #111111;
+  background-color: #f2f2f2;
+  border-color: #bcbcbc;
+}
+
+.preview-container .preview-code-toggle:focus-visible {
+  outline: 2px solid #222222;
+  outline-offset: 2px;
+}
+
+.preview-container .preview-code-block.is-collapsed .preview-code-toggle::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+
 .preview-container pre code {
   padding: 0;
   margin: 0;
