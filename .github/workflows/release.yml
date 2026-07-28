@@ -63,11 +63,13 @@ jobs:
             rustTargets: x86_64-pc-windows-msvc
             tauriTarget: x86_64-pc-windows-msvc
             bundles: nsis
+            includeUpdaterJson: true
           - name: macOS Universal
             platform: macos-latest
             rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
             tauriTarget: universal-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
+            includeUpdaterJson: false
 
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
@@ -95,15 +97,82 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build installer and draft release
+      - name: Build installer, updater artifacts, and draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'LightMarkit ${{ github.ref_name }}'
           releaseBody: 'See CHANGELOG.md for release details.'
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: false
+          includeUpdaterJson: ${{ matrix.includeUpdaterJson }}
+          updaterJsonPreferNsis: true
           args: --target ${{ matrix.tauriTarget }} --bundles ${{ matrix.bundles }}
+
+  finalize-updater-manifest:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add macOS updater targets and route downloads through GitHub mirror
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $manifestDirectory = Join-Path $env:RUNNER_TEMP 'lightmarkit-updater'
+          New-Item -ItemType Directory -Path $manifestDirectory -Force | Out-Null
+
+          gh release download $tag `
+            --repo '${{ github.repository }}' `
+            --pattern latest.json `
+            --dir $manifestDirectory
+
+          $release = gh release view $tag `
+            --repo '${{ github.repository }}' `
+            --json assets | ConvertFrom-Json
+          $macUpdater = @($release.assets | Where-Object { $_.name -match '\.app\.tar\.gz$' })
+          $macSignature = @($release.assets | Where-Object { $_.name -match '\.app\.tar\.gz\.sig$' })
+
+          if ($macUpdater.Count -ne 1 -or $macSignature.Count -ne 1) {
+            throw 'Expected exactly one universal macOS updater archive and signature.'
+          }
+
+          $signatureName = $macSignature[0].name
+          $signaturePath = Join-Path $manifestDirectory 'macos-updater.sig'
+          gh release download $tag `
+            --repo '${{ github.repository }}' `
+            --pattern $signatureName `
+            --output $signaturePath `
+            --clobber
+
+          $signature = (Get-Content $signaturePath -Raw -Encoding utf8).Trim()
+          $assetName = [uri]::EscapeDataString($macUpdater[0].name)
+          $downloadUrl = "https://gh-proxy.com/github.com/${{ github.repository }}/releases/download/$tag/$assetName"
+          $macPlatform = [ordered]@{
+            signature = $signature
+            url = $downloadUrl
+          }
+
+          $manifestPath = Join-Path $manifestDirectory 'latest.json'
+          $manifest = Get-Content $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+          $manifest.platforms | Add-Member -NotePropertyName 'darwin-aarch64' -NotePropertyValue $macPlatform -Force
+          $manifest.platforms | Add-Member -NotePropertyName 'darwin-x86_64' -NotePropertyValue $macPlatform -Force
+
+          foreach ($platform in $manifest.platforms.PSObject.Properties) {
+            $platform.Value.url = $platform.Value.url -replace '^https://github\.com/', 'https://gh-proxy.com/github.com/'
+          }
+
+          $json = $manifest | ConvertTo-Json -Depth 10
+          [System.IO.File]::WriteAllText(
+            $manifestPath,
+            $json,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+          gh release upload $tag $manifestPath `
+            --repo '${{ github.repository }}' `
+            --clobber
