@@ -163,6 +163,56 @@ function WindowControlIcon({ action }: { action: 'minimize' | 'maximize' | 'clos
   )
 }
 
+interface WindowControlsProps {
+  isMacOS: boolean
+  onClose: () => void
+  onMinimize: () => void
+  onToggleMaximize: () => void
+}
+
+function WindowControls({ isMacOS, onClose, onMinimize, onToggleMaximize }: WindowControlsProps) {
+  const controls = isMacOS
+    ? [
+        { action: 'close' as const, label: '关闭', onClick: onClose },
+        { action: 'minimize' as const, label: '最小化', onClick: onMinimize },
+        { action: 'maximize' as const, label: '缩放', onClick: onToggleMaximize },
+      ]
+    : [
+        { action: 'minimize' as const, label: '最小化', onClick: onMinimize },
+        { action: 'maximize' as const, label: '最大化', onClick: onToggleMaximize },
+        { action: 'close' as const, label: '关闭', onClick: onClose },
+      ]
+
+  return (
+    <div
+      className={`window-controls ${isMacOS ? 'macos' : 'windows'}`}
+      role="group"
+      aria-label="窗口控制"
+    >
+      {controls.map(({ action, label, onClick }) => (
+        <button
+          key={action}
+          type="button"
+          className={`window-control-button ${action}`}
+          onClick={onClick}
+          title={label}
+          aria-label={label}
+        >
+          <WindowControlIcon action={action} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function isMacOSPlatform(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  return /^Mac/.test(navigator.platform) || /Macintosh|Mac OS X/.test(navigator.userAgent)
+}
+
 function OutlineToggleIcon({ visible }: { visible: boolean }) {
   return (
     <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -213,6 +263,7 @@ function getEditorViewportLine(view: EditorView): number {
 }
 
 function App() {
+  const isMacOS = useMemo(() => isMacOSPlatform(), [])
   const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [leftWidth, setLeftWidth] = useState(50)
@@ -1185,7 +1236,19 @@ function App() {
 
   return (
     <div className="app-container">
-      <header className="app-header" ref={headerActionsRef} onPointerDown={handleDragWindow}>
+      <header
+        className={`app-header ${isMacOS ? 'platform-macos' : 'platform-windows'}`}
+        ref={headerActionsRef}
+        onPointerDown={handleDragWindow}
+      >
+        {isMacOS && (
+          <WindowControls
+            isMacOS
+            onClose={handleCloseWindow}
+            onMinimize={handleMinimizeWindow}
+            onToggleMaximize={handleToggleMaximizeWindow}
+          />
+        )}
         <nav className="app-menu-bar" aria-label="应用菜单">
           <div className={`toolbar-menu ${openMenu === 'file' ? 'open' : ''}`}>
             <button
@@ -1309,35 +1372,14 @@ function App() {
           >
             <OutlineToggleIcon visible={isOutlineVisible} />
           </button>
-          <div className="window-controls" aria-label="窗口控制">
-            <button
-              type="button"
-              className="window-control-button"
-              onClick={handleMinimizeWindow}
-              title="最小化"
-              aria-label="最小化"
-            >
-              <WindowControlIcon action="minimize" />
-            </button>
-            <button
-              type="button"
-              className="window-control-button"
-              onClick={handleToggleMaximizeWindow}
-              title="最大化"
-              aria-label="最大化"
-            >
-              <WindowControlIcon action="maximize" />
-            </button>
-            <button
-              type="button"
-              className="window-control-button close"
-              onClick={handleCloseWindow}
-              title="关闭"
-              aria-label="关闭"
-            >
-              <WindowControlIcon action="close" />
-            </button>
-          </div>
+          {!isMacOS && (
+            <WindowControls
+              isMacOS={false}
+              onClose={handleCloseWindow}
+              onMinimize={handleMinimizeWindow}
+              onToggleMaximize={handleToggleMaximizeWindow}
+            />
+          )}
         </div>
       </header>
       {fileError && (

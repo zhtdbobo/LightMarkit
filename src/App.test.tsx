@@ -222,9 +222,27 @@ describe('App', () => {
 
   it('应该渲染自定义窗口控制按钮', () => {
     render(<App />)
+    expect(screen.getByRole('group', { name: '窗口控制' })).toHaveClass('windows')
     expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument()
+  })
+
+  it('macOS 应该在标题栏左侧按原生顺序渲染窗口控制按钮', () => {
+    vi.stubGlobal('navigator', {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
+    })
+
+    render(<App />)
+
+    const controls = screen.getByRole('group', { name: '窗口控制' })
+    expect(controls).toHaveClass('macos')
+    expect(controls.parentElement?.firstElementChild).toBe(controls)
+    expect(
+      Array.from(controls.querySelectorAll('button'), (button) => button.getAttribute('aria-label'))
+    ).toEqual(['关闭', '最小化', '缩放'])
+    expect(screen.queryByRole('button', { name: '最大化' })).not.toBeInTheDocument()
   })
 
   it('应该调用 Tauri 窗口控制 API', () => {

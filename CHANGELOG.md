@@ -11,6 +11,10 @@
 - 同时生成 Windows 与 macOS 自动更新包、`.sig` 签名和 `latest.json`。
 - macOS 安装包保持 unsigned，不依赖 Apple Developer 签名或公证 Secrets。
 
+### 修复
+
+- macOS 标题栏改用左上角红黄绿窗口控制按钮，并保留 Windows 右上角控制布局。
+
 ## [0.3.5] - 2026-07-28
 
 ### 构建
