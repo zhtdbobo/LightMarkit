@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-29
+
+### 发布
+
+- 将当前稳定版本提升为 `0.4.0`，包含预览代码块折叠摘要和现有 Markdown 编辑功能。
+- 同时发布 Windows x64 NSIS 与 macOS Universal DMG，macOS 兼容 Intel 和 Apple Silicon。
+- 同时生成 Windows 与 macOS 自动更新包、`.sig` 签名和 `latest.json`。
+- macOS 安装包保持 unsigned，不依赖 Apple Developer 签名或公证 Secrets。
+
 ## [0.3.5] - 2026-07-28
 
 ### 构建
@@ -110,7 +119,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.2...v0.3.3
