@@ -33,12 +33,11 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 - 自动恢复上次打开的文件夹、当前文件、视图布局和侧栏宽度。
 - 文件夹栏、编辑区和大纲栏宽度均可调整。
 
-### 导出与更新
+### 导出与外观
 
 - 导出 HTML，并嵌入本地图片和已经渲染的 Mermaid 图表。
 - 导出 PDF，复用预览样式和渲染结果。
 - 应用界面适配系统明暗外观。
-- 支持在“关于”界面检查、下载并安装带签名验证的应用更新。
 
 ## 下载
 
@@ -48,7 +47,8 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 - macOS Universal 磁盘映像（`.dmg`），兼容 Intel 和 Apple Silicon。
 
 - [下载最新版本](https://github.com/zhtdbobo/LightMarkit/releases/latest)
-- v0.3.2 及更早版本需要手动安装一次 v0.3.3，之后可使用应用内更新。
+
+当前发布仅提供安装包，不生成 Tauri 更新签名或 `latest.json`。升级时请从 Releases 页面手动下载并安装新版本。
 
 macOS DMG 不使用 Apple Developer ID 签名或公证。首次打开时可能出现 Gatekeeper 提示，适合内部使用或由用户手动确认后运行。
 
@@ -179,7 +179,7 @@ LightMarkit/
 4. 按 [测试规范](docs/testing-standard.md) 完成发布前验收。
 5. 提交所有版本文件后再创建并推送 `vX.Y.Z` 标签。
 
-GitHub Actions 会在构建安装包前校验标签、应用配置和 README 版本；任一版本不一致都会终止发布。校验通过后会构建 Windows x64 NSIS 和 macOS Universal DMG，并把两个平台的更新信息合并到同一份 `latest.json`。
+GitHub Actions 会在构建安装包前校验标签、应用配置和 README 版本；任一版本不一致都会终止发布。校验通过后会构建 Windows x64 NSIS 和 macOS Universal DMG，并创建不依赖 Apple Developer 或 Tauri 更新签名 Secrets 的草稿 Release。
 
 ## 开发计划
 

@@ -95,60 +95,15 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build signed updater artifacts and draft release
+      - name: Build installer and draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'LightMarkit ${{ github.ref_name }}'
           releaseBody: 'See CHANGELOG.md for release details.'
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
+          includeUpdaterJson: false
           args: --target ${{ matrix.tauriTarget }} --bundles ${{ matrix.bundles }}
-
-  finalize-updater-manifest:
-    needs: build-desktop
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Route updater downloads through GitHub mirror
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $manifestDirectory = Join-Path $env:RUNNER_TEMP 'lightmarkit-updater'
-          New-Item -ItemType Directory -Path $manifestDirectory -Force | Out-Null
-          gh release download '${{ github.ref_name }}' `
-            --repo '${{ github.repository }}' `
-            --pattern latest.json `
-            --dir $manifestDirectory
-
-          $manifestPath = Join-Path $manifestDirectory 'latest.json'
-          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-          $platformNames = @($manifest.platforms.PSObject.Properties.Name)
-
-          if (-not ($platformNames | Where-Object { $_ -like 'windows-*' })) {
-            throw "Updater manifest is missing a Windows platform: $($platformNames -join ', ')"
-          }
-          if (-not ($platformNames | Where-Object { $_ -like 'darwin-*' })) {
-            throw "Updater manifest is missing a macOS platform: $($platformNames -join ', ')"
-          }
-
-          foreach ($platform in $manifest.platforms.PSObject.Properties) {
-            $downloadUrl = [string]$platform.Value.url
-            if (-not $downloadUrl.StartsWith('https://github.com/')) {
-              throw "Unexpected updater download URL: $downloadUrl"
-            }
-
-            $platform.Value.url = 'https://gh-proxy.com/' + $downloadUrl.Substring('https://'.Length)
-          }
-
-          $manifest | ConvertTo-Json -Depth 10 | Set-Content $manifestPath -Encoding utf8 -NoNewline
-          gh release upload '${{ github.ref_name }}' $manifestPath `
-            --repo '${{ github.repository }}' `
-            --clobber

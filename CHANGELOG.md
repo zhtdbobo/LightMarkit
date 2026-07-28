@@ -12,6 +12,7 @@
 
 - 发布工作流同时构建 Windows x64 NSIS 安装包和 macOS Universal DMG。
 - 发布前校验 README、前端、Rust 与 Tauri 配置中的版本号，防止文档或版本信息漏更新。
+- 安装包发布不再生成 Tauri 更新签名和 `latest.json`，无需配置更新私钥 Secrets。
 
 本项目的重要变更记录在此文件中。
 
