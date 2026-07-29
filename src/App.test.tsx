@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -72,6 +73,7 @@ describe('App', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     vi.mocked(open).mockResolvedValue(null)
     vi.mocked(save).mockResolvedValue(null)
     vi.mocked(scanFolder).mockResolvedValue([])
@@ -138,16 +140,88 @@ describe('App', () => {
   it('应该渲染视图模式切换按钮', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '分屏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '预览' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '分屏' })).not.toBeInTheDocument()
+  })
+
+  it('应该通过独立设置页在铺满和默认阅读宽度之间切换', () => {
+    render(<App />)
+
+    expect(screen.getByTestId('editor-container')).toHaveClass('full-width-editor')
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+
+    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument()
+    expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '编辑' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: '关闭设置' }).closest('.settings-detail')).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: '关于 LightMarkit' })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /铺满/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: /默认阅读宽度/ }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+
+    expect(screen.getByTestId('editor-container')).not.toHaveClass('full-width-editor')
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: /铺满/ }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+
+    expect(screen.getByTestId('editor-container')).toHaveClass('full-width-editor')
+  })
+
+  it('应该忽略旧版宽度字段并默认使用铺满模式', () => {
+    localStorage.setItem(
+      'lightmarkit.app-state.v1',
+      JSON.stringify({ isEditorFullWidth: false })
+    )
+
+    render(<App />)
+
+    expect(screen.getByTestId('editor-container')).toHaveClass('full-width-editor')
+  })
+
+  it('应该始终显示大纲且不再提供显隐按钮', () => {
+    render(<App />)
+
+    expect(screen.getByLabelText('文档大纲为空')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '隐藏大纲' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '显示大纲' })).not.toBeInTheDocument()
   })
 
   it('应该按分类渲染顶部工具栏', () => {
     render(<App />)
+    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '文件' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '导出' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '关于' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '设置' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '关于' })).not.toBeInTheDocument()
     expect(screen.queryByText('视图')).not.toBeInTheDocument()
+  })
+
+  it('应该在左上角提供逐步撤销按钮', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const undoButton = screen.getByRole('button', { name: '撤销' })
+    const menuBar = screen.getByLabelText('应用菜单')
+    expect(menuBar.firstElementChild).toBe(undoButton)
+    expect(undoButton).toBeDisabled()
+
+    const editorElement = screen
+      .getByTestId('editor-container')
+      .querySelector('.cm-content') as HTMLElement
+    await user.click(editorElement)
+    await user.keyboard('abc')
+
+    await waitFor(() => {
+      expect(undoButton).toBeEnabled()
+    })
+
+    await user.click(undoButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('editor-container')).not.toHaveTextContent('abc')
+      expect(undoButton).toBeDisabled()
+    })
   })
 
   it('应该通过 Tauri Updater 检查、下载并安装新版本', async () => {
@@ -166,9 +240,11 @@ describe('App', () => {
     } as unknown as Update)
     render(<App />)
 
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
 
-    expect(screen.getByRole('dialog', { name: 'LightMarkit' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '设置' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '关于 LightMarkit' })).toBeVisible()
     expect(screen.getByText(`版本 ${packageInfo.version}`)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '专注写作' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '轻巧高效' })).toBeInTheDocument()
@@ -196,6 +272,7 @@ describe('App', () => {
     vi.mocked(check).mockResolvedValue(null)
     render(<App />)
 
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
 
@@ -212,6 +289,7 @@ describe('App', () => {
     } as unknown as Update)
     render(<App />)
 
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
     fireEvent.click(await screen.findByRole('button', { name: '下载并安装' }))
@@ -243,6 +321,9 @@ describe('App', () => {
       Array.from(controls.querySelectorAll('button'), (button) => button.getAttribute('aria-label'))
     ).toEqual(['关闭', '最小化', '缩放'])
     expect(screen.queryByRole('button', { name: '最大化' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(screen.getByRole('button', { name: '关闭设置' }).closest('.settings-sidebar')).not.toBeNull()
   })
 
   it('应该调用 Tauri 窗口控制 API', () => {
@@ -347,16 +428,11 @@ describe('App', () => {
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }))
   })
 
-  it('应该默认为分屏模式', () => {
+  it('应该默认为所见即所得编辑模式', () => {
     render(<App />)
-    const splitButton = screen.getByRole('button', { name: '分屏' })
-    expect(splitButton).toHaveClass('active')
-  })
-
-  it('应该在分屏模式下同时显示编辑器和预览', () => {
-    render(<App />)
-    expect(screen.getByTestId('editor-container')).toBeInTheDocument()
-    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
+    const editButton = screen.getByRole('button', { name: '编辑' })
+    expect(editButton).toHaveClass('active')
+    expect(screen.getByTestId('editor-container')).toHaveClass('wysiwyg-editor')
   })
 
   it('应该点击按钮切换到编辑模式', () => {
@@ -379,43 +455,26 @@ describe('App', () => {
     expect(screen.getByTestId('preview-container')).toBeInTheDocument()
   })
 
-  it('应该在分屏模式下渲染分割条', () => {
+  it('应该只使用单栏并且不渲染分割条', () => {
     render(<App />)
-    expect(screen.getByTestId('resizer')).toBeInTheDocument()
-  })
-
-  it('应该在编辑模式下不渲染分割条', () => {
-    render(<App />)
-    const editButton = screen.getByRole('button', { name: '编辑' })
-    fireEvent.click(editButton)
-
     expect(screen.queryByTestId('resizer')).not.toBeInTheDocument()
-  })
 
-  it('应该在预览模式下不渲染分割条', () => {
-    render(<App />)
-    const previewButton = screen.getByRole('button', { name: '预览' })
-    fireEvent.click(previewButton)
-
+    fireEvent.click(screen.getByRole('button', { name: '预览' }))
     expect(screen.queryByTestId('resizer')).not.toBeInTheDocument()
   })
 
   it('应该通过 Ctrl+/ 切换视图模式', () => {
     render(<App />)
 
-    // 初始为分屏模式
-    expect(screen.getByRole('button', { name: '分屏' })).toHaveClass('active')
+    // 初始为所见即所得编辑模式
+    expect(screen.getByRole('button', { name: '编辑' })).toHaveClass('active')
 
     // 第一次按 Ctrl+/ 切换到预览模式
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
     expect(screen.getByRole('button', { name: '预览' })).toHaveClass('active')
 
-    // 第二次按 Ctrl+/ 切换到编辑模式
+    // 第二次按 Ctrl+/ 回到所见即所得编辑模式
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
     expect(screen.getByRole('button', { name: '编辑' })).toHaveClass('active')
-
-    // 第三次按 Ctrl+/ 回到分屏模式
-    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
-    expect(screen.getByRole('button', { name: '分屏' })).toHaveClass('active')
   })
 })

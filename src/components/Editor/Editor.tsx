@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
 import { createEditingExtensions } from './extensions'
+import { createLivePreview } from './livePreview'
 import './Editor.css'
 
 export interface EditorProps {
@@ -18,6 +19,12 @@ export interface EditorProps {
   className?: string
   /** 编辑器就绪时回调 */
   onReady?: (view: EditorView) => void
+  /** 编辑器状态更新时回调 */
+  onUpdate?: (view: EditorView) => void
+  /** 启用类似 Typora 的所见即所得编辑体验 */
+  wysiwyg?: boolean
+  /** 当前文件路径，用于解析编辑区中的本地图片 */
+  currentFile?: string | null
 }
 
 const Editor: React.FC<EditorProps> = ({
@@ -27,9 +34,13 @@ const Editor: React.FC<EditorProps> = ({
   readOnly = false,
   className = '',
   onReady,
+  onUpdate,
+  wysiwyg = true,
+  currentFile = null,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const livePreviewCompartmentRef = useRef(new Compartment())
 
   useEffect(() => {
     if (!editorRef.current) return
@@ -42,8 +53,13 @@ const Editor: React.FC<EditorProps> = ({
         EditorView.lineWrapping,
         markdown(),
         ...createEditingExtensions(),
+        livePreviewCompartmentRef.current.of(
+          wysiwyg ? createLivePreview({ currentFile }) : []
+        ),
         EditorView.editable.of(!readOnly),
         EditorView.updateListener.of((update) => {
+          onUpdate?.(update.view)
+
           if (update.docChanged && onChange) {
             const newValue = update.state.doc.toString()
             onChange(newValue)
@@ -80,13 +96,29 @@ const Editor: React.FC<EditorProps> = ({
             to: currentValue.length,
             insert: value,
           },
+          annotations: Transaction.addToHistory.of(false),
         })
       }
     }
   }, [value])
 
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+
+    view.dispatch({
+      effects: livePreviewCompartmentRef.current.reconfigure(
+        wysiwyg ? createLivePreview({ currentFile }) : []
+      ),
+    })
+  }, [currentFile, wysiwyg])
+
   return (
-    <div ref={editorRef} data-testid="editor-container" className={`editor-wrapper ${className}`} />
+    <div
+      ref={editorRef}
+      data-testid="editor-container"
+      className={`editor-wrapper ${wysiwyg ? 'wysiwyg-editor' : 'source-editor'} ${className}`}
+    />
   )
 }
 

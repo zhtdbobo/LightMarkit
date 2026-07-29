@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { EditorView } from 'codemirror'
+import { undo, undoDepth } from '@codemirror/commands'
 import { listen } from '@tauri-apps/api/event'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -8,7 +9,6 @@ import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updat
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Editor from './components/Editor'
 import { Preview } from './components/Preview'
-import { Resizer } from './components/Resizer'
 import { FileList, type FolderGroup } from './components/FileList'
 import { Outline } from './components/Outline'
 import {
@@ -32,7 +32,7 @@ const APP_VERSION = packageInfo.version
 const REPOSITORY_URL = 'https://github.com/zhtdbobo/LightMarkit'
 const UPDATE_CHECK_TIMEOUT_MS = 30_000
 
-type ViewMode = 'edit' | 'split' | 'preview'
+type ViewMode = 'edit' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
 type ToolbarMenu = 'file' | 'export' | null
 type ExportExtension = 'html' | 'pdf' | 'md'
@@ -121,19 +121,19 @@ function ViewModeIcon({ mode }: { mode: ViewMode }) {
     )
   }
 
-  if (mode === 'split') {
-    return (
-      <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="4" y="5" width="16" height="14" rx="2" />
-        <path d="M12 5v14" />
-      </svg>
-    )
-  }
-
   return (
     <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
       <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+function UndoIcon() {
+  return (
+    <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 7H4v5" />
+      <path d="M4 12c2.3-4.1 7.2-5.7 11.2-3.6 3.5 1.8 4.8 6.1 3 9.6-1.1 2-3.1 3.4-5.4 3.7" />
     </svg>
   )
 }
@@ -213,25 +213,253 @@ function isMacOSPlatform(): boolean {
   return /^Mac/.test(navigator.platform) || /Macintosh|Mac OS X/.test(navigator.userAgent)
 }
 
-function OutlineToggleIcon({ visible }: { visible: boolean }) {
+function SettingsIcon() {
   return (
     <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
-      {visible ? (
-        <>
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-          <path d="M9 8h8M9 12h8M9 16h5" />
-          <path d="M6 8h1M6 12h1M6 16h1" />
-        </>
-      ) : (
-        <>
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-          <path d="M10 8h7" opacity="0.35" />
-          <path d="M10 12h7" opacity="0.35" />
-          <path d="M10 16h4" opacity="0.35" />
-          <path d="M7 7l10 10" />
-        </>
-      )}
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19 12a7 7 0 0 0-.08-1l2-1.55-2-3.46-2.45 1A7 7 0 0 0 14.7 6L14.35 3h-4.7L9.3 6a7 7 0 0 0-1.77 1L5.08 6 3.08 9.45l2 1.55a7 7 0 0 0 0 2L3.08 14.55l2 3.46 2.45-1a7 7 0 0 0 1.77 1l.35 3h4.7l.35-3a7 7 0 0 0 1.77-1l2.45 1 2-3.46-2-1.55c.05-.33.08-.66.08-1z" />
     </svg>
+  )
+}
+
+interface SettingsPageProps {
+  fullWidth: boolean
+  isMacOS: boolean
+  updateStatus: UpdateStatus
+  onClose: () => void
+  onWidthChange: (fullWidth: boolean) => void
+  onOpenRepository: () => void
+  onCheckForUpdates: () => void
+  onInstallUpdate: () => void
+}
+
+function SettingsPage({
+  fullWidth,
+  isMacOS,
+  updateStatus,
+  onClose,
+  onWidthChange,
+  onOpenRepository,
+  onCheckForUpdates,
+  onInstallUpdate,
+}: SettingsPageProps) {
+  const [activeSection, setActiveSection] = useState<'editor' | 'about'>('editor')
+  const closeButton = (
+    <button
+      type="button"
+      className="settings-close-button"
+      onClick={onClose}
+      aria-label="关闭设置"
+      title="关闭设置"
+    >
+      ×
+    </button>
+  )
+
+  return (
+    <section
+      className={`settings-page ${isMacOS ? 'platform-macos' : 'platform-windows'}`}
+      aria-labelledby="settings-page-title"
+    >
+      <aside className="settings-sidebar">
+        <header className="settings-sidebar-header">
+          {isMacOS && closeButton}
+          <h1 id="settings-page-title">设置</h1>
+        </header>
+        <nav className="settings-navigation" aria-label="设置分类">
+          <button
+            type="button"
+            className={`settings-navigation-item ${activeSection === 'editor' ? 'active' : ''}`}
+            onClick={() => setActiveSection('editor')}
+            aria-current={activeSection === 'editor' ? 'page' : undefined}
+          >
+            编辑
+          </button>
+          <button
+            type="button"
+            className={`settings-navigation-item ${activeSection === 'about' ? 'active' : ''}`}
+            onClick={() => setActiveSection('about')}
+            aria-current={activeSection === 'about' ? 'page' : undefined}
+          >
+            关于
+          </button>
+        </nav>
+      </aside>
+
+      <main className="settings-detail">
+        {!isMacOS && closeButton}
+
+        {activeSection === 'editor' ? (
+          <section className="settings-detail-section" aria-labelledby="editor-settings-title">
+            <header className="settings-content-header">
+              <h2 id="editor-settings-title">编辑</h2>
+              <p>设置所见即所得编辑区的内容宽度。</p>
+            </header>
+            <div className="settings-card">
+              <div className="settings-card-heading">
+                <h3>内容宽度</h3>
+                <p>选择适合当前写作习惯的页面布局。</p>
+              </div>
+              <div className="settings-width-options" role="radiogroup" aria-label="编辑器宽度">
+                <button
+                  type="button"
+                  className={`settings-width-card ${fullWidth ? 'selected' : ''}`}
+                  role="radio"
+                  aria-checked={fullWidth}
+                  onClick={() => onWidthChange(true)}
+                >
+                  <span className="settings-width-preview full" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>
+                    <strong>铺满</strong>
+                    <small>充分利用编辑区域宽度，左右保留 24px 间距</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`settings-width-card ${fullWidth ? '' : 'selected'}`}
+                  role="radio"
+                  aria-checked={!fullWidth}
+                  onClick={() => onWidthChange(false)}
+                >
+                  <span className="settings-width-preview reading" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>
+                    <strong>默认阅读宽度</strong>
+                    <small>正文居中显示，最大宽度 920px</small>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="settings-detail-section" aria-labelledby="about-title">
+            <header className="settings-content-header">
+              <h2 id="about-title">关于 LightMarkit</h2>
+              <p>版本信息、开源许可与软件更新。</p>
+            </header>
+            <div className="settings-card settings-about-card">
+              <div className="about-dialog-hero">
+                <div className="about-dialog-logo-frame">
+                  <img className="about-dialog-logo" src={appIconUrl} alt="LightMarkit 图标" />
+                </div>
+                <p className="about-dialog-version">版本 {APP_VERSION}</p>
+                <p className="about-dialog-description">
+                  一款轻量、简洁的 Markdown 编辑器，支持所见即所得、文档大纲、Mermaid
+                  图表与多格式导出。
+                </p>
+              </div>
+
+              <div className="about-feature-grid" aria-label="产品特点">
+                <div className="about-feature-card">
+                  <span className="about-feature-icon" aria-hidden="true">
+                    #
+                  </span>
+                  <div>
+                    <h3>专注写作</h3>
+                    <p>所见即所得的 Markdown 编辑体验</p>
+                  </div>
+                </div>
+                <div className="about-feature-card">
+                  <span className="about-feature-icon" aria-hidden="true">
+                    ↔
+                  </span>
+                  <div>
+                    <h3>轻巧高效</h3>
+                    <p>基于 Tauri 构建，快速启动、低资源占用</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="about-details">
+                <div className="about-detail-row">
+                  <span className="about-detail-label">开源许可</span>
+                  <span className="about-detail-value">MIT License</span>
+                </div>
+                <div className="about-detail-row">
+                  <span className="about-detail-label">项目主页</span>
+                  <a
+                    href={REPOSITORY_URL}
+                    className="about-repository-link"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      onOpenRepository()
+                    }}
+                  >
+                    GitHub
+                  </a>
+                </div>
+                <div className="about-detail-row about-update-row">
+                  <div>
+                    <span className="about-detail-label">软件更新</span>
+                    {updateStatus.state === 'latest' && (
+                      <p role="status" className="about-update-status latest">
+                        当前已是最新版本 v{updateStatus.version}
+                      </p>
+                    )}
+                    {updateStatus.state === 'available' && (
+                      <p role="status" className="about-update-status available">
+                        发现新版本 v{updateStatus.version}
+                      </p>
+                    )}
+                    {updateStatus.state === 'downloading' && (
+                      <div className="about-update-progress" role="status" aria-live="polite">
+                        <span>
+                          正在下载 v{updateStatus.version}：{updateStatus.progress}%
+                        </span>
+                        <progress max="100" value={updateStatus.progress}>
+                          {updateStatus.progress}%
+                        </progress>
+                      </div>
+                    )}
+                    {updateStatus.state === 'installing' && (
+                      <p role="status" className="about-update-status available">
+                        下载完成，正在验证签名并安装 v{updateStatus.version}…
+                      </p>
+                    )}
+                    {updateStatus.state === 'error' && (
+                      <p role="alert" className="about-update-status error">
+                        {updateStatus.message}
+                      </p>
+                    )}
+                  </div>
+                  {updateStatus.state === 'available' ? (
+                    <button type="button" className="about-update-button" onClick={onInstallUpdate}>
+                      下载并安装
+                    </button>
+                  ) : updateStatus.state === 'downloading' ? (
+                    <button type="button" className="about-update-button" disabled>
+                      下载中 {updateStatus.progress}%
+                    </button>
+                  ) : updateStatus.state === 'installing' ? (
+                    <button type="button" className="about-update-button" disabled>
+                      正在安装…
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="about-update-button secondary"
+                      onClick={onCheckForUpdates}
+                      disabled={updateStatus.state === 'checking'}
+                    >
+                      {updateStatus.state === 'checking' ? '正在检查…' : '检查更新'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <p className="about-dialog-footer">© 2026 zhtdbobo · 让 Markdown 写作更轻松</p>
+            </div>
+          </section>
+        )}
+      </main>
+    </section>
   )
 }
 
@@ -265,8 +493,7 @@ function getEditorViewportLine(view: EditorView): number {
 function App() {
   const isMacOS = useMemo(() => isMacOSPlatform(), [])
   const [content, setContent] = useState('')
-  const [viewMode, setViewMode] = useState<ViewMode>('split')
-  const [leftWidth, setLeftWidth] = useState(50)
+  const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>(() => {
@@ -302,17 +529,18 @@ function App() {
     }
   })
   const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null)
-  const [isAboutOpen, setIsAboutOpen] = useState(false)
+  const [isSettingsPageOpen, setIsSettingsPageOpen] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
   const [fileError, setFileError] = useState<string | null>(null)
   const outlineItems = useMemo(() => extractMarkdownOutline(content), [content])
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null)
-  const [isOutlineVisible, setIsOutlineVisible] = useState(() => {
+  const [isEditorFullWidth, setIsEditorFullWidth] = useState(() => {
     try {
       const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
       if (!raw) return true
-      const parsed = JSON.parse(raw) as { isOutlineVisible?: boolean }
-      return parsed.isOutlineVisible ?? true
+      const parsed = JSON.parse(raw) as { editorWidthMode?: 'full' | 'reading' }
+      return parsed.editorWidthMode !== 'reading'
     } catch {
       return true
     }
@@ -325,9 +553,12 @@ function App() {
   const previewPanelRef = useRef<HTMLDivElement | null>(null)
   const editorViewRef = useRef<EditorView | null>(null)
   const availableUpdateRef = useRef<Update | null>(null)
-  const isSyncingScrollRef = useRef(false)
   const isProgrammaticCloseRef = useRef(false)
   const activeOutlineIdRef = useRef<string | null>(null)
+
+  const updateUndoAvailability = useCallback((view: EditorView | null = editorViewRef.current) => {
+    setCanUndo(view ? undoDepth(view.state) > 0 : false)
+  }, [])
 
   useEffect(() => {
     contentRef.current = content
@@ -351,19 +582,32 @@ function App() {
             path: folder.path,
             files: [],
           })),
-          isOutlineVisible,
+          editorWidthMode: isEditorFullWidth ? 'full' : 'reading',
           currentFile,
         })
       )
     } catch {
       // ignore storage failures
     }
-  }, [openedFolders, isOutlineVisible, currentFile])
+  }, [openedFolders, isEditorFullWidth, currentFile])
 
   const runToolbarAction = useCallback((action: () => unknown | Promise<unknown>) => {
     setOpenMenu(null)
     void action()
   }, [])
+
+  const handleUndo = useCallback(() => {
+    const view = editorViewRef.current
+
+    if (!view || viewMode !== 'edit' || isSettingsPageOpen) {
+      updateUndoAvailability(null)
+      return
+    }
+
+    undo(view)
+    view.focus()
+    updateUndoAvailability(view)
+  }, [isSettingsPageOpen, updateUndoAvailability, viewMode])
 
   const handleMinimizeWindow = useCallback(() => {
     void getCurrentWindow().minimize()
@@ -833,11 +1077,7 @@ function App() {
       // 模式切换快捷键
       if (e.ctrlKey && e.key === '/') {
         e.preventDefault()
-        setViewMode((prev) => {
-          if (prev === 'edit') return 'split'
-          if (prev === 'split') return 'preview'
-          return 'edit'
-        })
+        setViewMode((prev) => (prev === 'edit' ? 'preview' : 'edit'))
       }
 
       // 打开文件夹快捷键
@@ -876,7 +1116,7 @@ function App() {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpenMenu(null)
-        setIsAboutOpen(false)
+        setIsSettingsPageOpen(false)
       }
     }
 
@@ -903,7 +1143,18 @@ function App() {
     }
 
     editorPanelRef.current = null
+    editorViewRef.current = null
+    setCanUndo(false)
   }, [viewMode])
+
+  useEffect(() => {
+    if (!isSettingsPageOpen) {
+      return
+    }
+
+    editorViewRef.current = null
+    setCanUndo(false)
+  }, [isSettingsPageOpen])
 
   const handleOutlineItemClick = useCallback((item: OutlineItem) => {
     const view = editorViewRef.current
@@ -1005,12 +1256,8 @@ function App() {
     [outlineItems]
   )
 
-  // 单栏模式直接监听当前视口；分屏模式由滚动同步逻辑按实际滚动来源更新。
+  // 根据当前单栏视图的滚动位置更新大纲高亮。
   useEffect(() => {
-    if (viewMode === 'split') {
-      return
-    }
-
     const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
     const previewScroller =
       previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
@@ -1051,130 +1298,6 @@ function App() {
       }
       editorScroller?.removeEventListener('scroll', scheduleRefresh)
       previewScroller?.removeEventListener('scroll', scheduleRefresh)
-    }
-  }, [viewMode, content, outlineItems, updateActiveOutlineFromLine])
-
-  // 分屏滚动同步：按阅读探针和块级锚点对齐，避免大块内容造成漂移
-  useEffect(() => {
-    if (viewMode !== 'split') {
-      return
-    }
-
-    const editorScroller = editorPanelRef.current?.querySelector<HTMLElement>('.cm-scroller')
-    const previewScroller =
-      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
-    const view = editorViewRef.current
-
-    if (!editorScroller || !previewScroller || !view) {
-      return
-    }
-
-    type Anchor = { line: number; top: number }
-
-    const collectAnchors = (): Anchor[] => {
-      const nodes = previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')
-      const anchors: Anchor[] = []
-      const rootTop = previewScroller.getBoundingClientRect().top
-
-      nodes.forEach((node) => {
-        const line = Number.parseInt(node.getAttribute('data-source-line') || '', 10)
-        if (!Number.isFinite(line) || line <= 0) {
-          return
-        }
-        const top = node.getBoundingClientRect().top - rootTop + previewScroller.scrollTop
-        anchors.push({ line, top })
-      })
-
-      anchors.sort((a, b) => a.line - b.line || a.top - b.top)
-      return anchors
-    }
-
-    const previewTopForLine = (anchors: Anchor[], line: number): number => {
-      if (anchors.length === 0) return 0
-      if (line <= anchors[0].line) return Math.max(0, anchors[0].top)
-      const last = anchors[anchors.length - 1]
-      if (line >= last.line)
-        return Math.max(0, previewScroller.scrollHeight - previewScroller.clientHeight)
-
-      for (let i = 0; i < anchors.length - 1; i += 1) {
-        const a = anchors[i]
-        const b = anchors[i + 1]
-        if (line >= a.line && line <= b.line) {
-          if (b.line === a.line) return a.top
-          const t = (line - a.line) / (b.line - a.line)
-          return a.top + t * (b.top - a.top)
-        }
-      }
-
-      return last.top
-    }
-
-    const sourceLineForPreviewViewport = (): number => {
-      return resolvePreviewSourceLine(previewScroller) ?? 1
-    }
-
-    const editorScrollTopForLine = (line: number): number => {
-      const safeLine = Math.min(Math.max(1, line), view.state.doc.lines)
-      const lineInfo = view.state.doc.line(safeLine)
-      return Math.max(0, view.lineBlockAt(lineInfo.from).top)
-    }
-
-    let syncRaf: number | null = null
-
-    const syncOutlineFromEditor = () => {
-      if (isSyncingScrollRef.current) return
-      const line = getEditorViewportLine(view)
-      updateActiveOutlineFromLine(line)
-    }
-
-    const syncFromEditor = () => {
-      if (isSyncingScrollRef.current || syncRaf !== null) return
-      syncRaf = window.requestAnimationFrame(() => {
-        syncRaf = null
-        if (isSyncingScrollRef.current) return
-        const anchors = collectAnchors()
-        if (anchors.length === 0) return
-        const line = getEditorViewportLine(view)
-        updateActiveOutlineFromLine(line)
-        const targetTop = previewTopForLine(anchors, line)
-        if (Math.abs(previewScroller.scrollTop - targetTop) < 1) return
-        isSyncingScrollRef.current = true
-        previewScroller.scrollTop = targetTop
-        window.requestAnimationFrame(() => {
-          isSyncingScrollRef.current = false
-        })
-      })
-    }
-
-    const syncFromPreview = () => {
-      if (isSyncingScrollRef.current || syncRaf !== null) return
-      syncRaf = window.requestAnimationFrame(() => {
-        syncRaf = null
-        if (isSyncingScrollRef.current) return
-        const anchors = collectAnchors()
-        if (anchors.length === 0) return
-        const line = sourceLineForPreviewViewport()
-        updateActiveOutlineFromLine(line)
-        const targetTop = editorScrollTopForLine(line)
-        if (Math.abs(editorScroller.scrollTop - targetTop) < 1) return
-        isSyncingScrollRef.current = true
-        editorScroller.scrollTop = targetTop
-        window.requestAnimationFrame(() => {
-          isSyncingScrollRef.current = false
-        })
-      })
-    }
-
-    editorScroller.addEventListener('scroll', syncFromEditor, { passive: true })
-    previewScroller.addEventListener('scroll', syncFromPreview, { passive: true })
-    syncOutlineFromEditor()
-
-    return () => {
-      if (syncRaf !== null) {
-        window.cancelAnimationFrame(syncRaf)
-      }
-      editorScroller.removeEventListener('scroll', syncFromEditor)
-      previewScroller.removeEventListener('scroll', syncFromPreview)
     }
   }, [viewMode, content, outlineItems, updateActiveOutlineFromLine])
 
@@ -1234,6 +1357,8 @@ function App() {
     }
   }
 
+  const isUndoDisabled = isSettingsPageOpen || viewMode !== 'edit' || !canUndo
+
   return (
     <div className="app-container">
       <header
@@ -1250,6 +1375,16 @@ function App() {
           />
         )}
         <nav className="app-menu-bar" aria-label="应用菜单">
+          <button
+            type="button"
+            className="undo-button"
+            onClick={handleUndo}
+            disabled={isUndoDisabled}
+            title="撤销上一步 (Ctrl+Z)"
+            aria-label="撤销"
+          >
+            <UndoIcon />
+          </button>
           <div className={`toolbar-menu ${openMenu === 'file' ? 'open' : ''}`}>
             <button
               type="button"
@@ -1316,62 +1451,47 @@ function App() {
             </div>
           </div>
 
-          <button
-            type="button"
-            className="menu-trigger"
-            onClick={() => {
-              setOpenMenu(null)
-              setIsAboutOpen(true)
-            }}
-            aria-haspopup="dialog"
-            aria-expanded={isAboutOpen}
-            aria-label="关于"
-          >
-            关于
-          </button>
         </nav>
 
         <div className="header-actions" aria-label="文档工具栏">
           {saveStatus === 'saved' && <span className="save-status">✓ 已自动保存</span>}
-          <div className="view-mode-switcher" aria-label="视图模式">
+          {!isSettingsPageOpen && (
+            <div className="view-mode-switcher" aria-label="视图模式">
+              <button
+                type="button"
+                className={`mode-button ${viewMode === 'edit' ? 'active' : ''}`}
+                onClick={() => setViewMode('edit')}
+                title="所见即所得模式 (Ctrl+/)"
+                aria-label="编辑"
+              >
+                <ViewModeIcon mode="edit" />
+              </button>
+              <button
+                type="button"
+                className={`mode-button ${viewMode === 'preview' ? 'active' : ''}`}
+                onClick={() => setViewMode('preview')}
+                title="纯预览模式 (Ctrl+/)"
+                aria-label="预览"
+              >
+                <ViewModeIcon mode="preview" />
+              </button>
+            </div>
+          )}
+          <div className="settings-menu">
             <button
               type="button"
-              className={`mode-button ${viewMode === 'edit' ? 'active' : ''}`}
-              onClick={() => setViewMode('edit')}
-              title="纯编辑模式 (Ctrl+/)"
-              aria-label="编辑"
+              className={`mode-button settings-trigger ${isSettingsPageOpen ? 'active' : ''}`}
+              onClick={() => {
+                setOpenMenu(null)
+                setIsSettingsPageOpen((isOpen) => !isOpen)
+              }}
+              title="设置"
+              aria-label="设置"
+              aria-pressed={isSettingsPageOpen}
             >
-              <ViewModeIcon mode="edit" />
-            </button>
-            <button
-              type="button"
-              className={`mode-button ${viewMode === 'split' ? 'active' : ''}`}
-              onClick={() => setViewMode('split')}
-              title="分屏模式 (Ctrl+/)"
-              aria-label="分屏"
-            >
-              <ViewModeIcon mode="split" />
-            </button>
-            <button
-              type="button"
-              className={`mode-button ${viewMode === 'preview' ? 'active' : ''}`}
-              onClick={() => setViewMode('preview')}
-              title="纯预览模式 (Ctrl+/)"
-              aria-label="预览"
-            >
-              <ViewModeIcon mode="preview" />
+              <SettingsIcon />
             </button>
           </div>
-          <button
-            type="button"
-            className={`mode-button outline-toolbar-toggle ${isOutlineVisible ? 'active' : ''}`}
-            onClick={() => setIsOutlineVisible((value) => !value)}
-            title={isOutlineVisible ? '隐藏大纲' : '显示大纲'}
-            aria-label={isOutlineVisible ? '隐藏大纲' : '显示大纲'}
-            aria-pressed={isOutlineVisible}
-          >
-            <OutlineToggleIcon visible={isOutlineVisible} />
-          </button>
           {!isMacOS && (
             <WindowControls
               isMacOS={false}
@@ -1397,7 +1517,19 @@ function App() {
         </div>
       )}
       <main className="app-main">
-        <div
+        {isSettingsPageOpen ? (
+          <SettingsPage
+            fullWidth={isEditorFullWidth}
+            isMacOS={isMacOS}
+            updateStatus={updateStatus}
+            onClose={() => setIsSettingsPageOpen(false)}
+            onWidthChange={setIsEditorFullWidth}
+            onOpenRepository={() => void openUrl(REPOSITORY_URL)}
+            onCheckForUpdates={() => void handleCheckForUpdates()}
+            onInstallUpdate={() => void handleInstallUpdate()}
+          />
+        ) : (
+          <div
           className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
           style={
             {
@@ -1426,199 +1558,50 @@ function App() {
           )}
           <div className={`editor-preview-container mode-${viewMode}`}>
             <div className="editor-preview-surface">
-              {(viewMode === 'edit' || viewMode === 'split') && (
-                <div
-                  ref={editorPanelRef}
-                  className="editor-panel"
-                  style={viewMode === 'split' ? { width: `${leftWidth}%` } : undefined}
-                >
+              {viewMode === 'edit' && (
+                <div ref={editorPanelRef} className="editor-panel">
                   <Editor
                     value={content}
                     onChange={setContent}
+                    wysiwyg
+                    currentFile={currentFile}
+                    className={isEditorFullWidth ? 'full-width-editor' : ''}
                     onReady={(view) => {
                       editorViewRef.current = view
+                      updateUndoAvailability(view)
                     }}
+                    onUpdate={updateUndoAvailability}
                   />
                 </div>
               )}
-              {viewMode === 'split' && (
-                <Resizer onResize={setLeftWidth} initialLeftWidth={leftWidth} />
-              )}
-              {(viewMode === 'preview' || viewMode === 'split') && (
-                <div
-                  ref={previewPanelRef}
-                  className="preview-panel"
-                  style={viewMode === 'split' ? { width: `${100 - leftWidth}%` } : undefined}
-                >
+              {viewMode === 'preview' && (
+                <div ref={previewPanelRef} className="preview-panel">
                   <Preview content={content} currentFile={currentFile} />
                 </div>
               )}
             </div>
-            {isOutlineVisible && (
-              <aside
-                className="outline-sidebar"
-                style={{ width: outlineWidth, flex: `0 0 ${outlineWidth}px` }}
-              >
-                <Outline
-                  items={outlineItems}
-                  activeItemId={activeOutlineId}
-                  onItemClick={handleOutlineItemClick}
-                />
-                <div
-                  className="outline-resizer"
-                  onPointerDown={handleOutlineResizeStart}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="调整大纲栏宽度"
-                  title="拖动调整大纲栏宽度"
-                />
-              </aside>
-            )}
-          </div>
-        </div>
-      </main>
-      {isAboutOpen && (
-        <div
-          className="about-dialog-backdrop"
-          onPointerDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setIsAboutOpen(false)
-            }
-          }}
-        >
-          <section
-            className="about-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="about-dialog-title"
-          >
-            <button
-              type="button"
-              className="about-dialog-close"
-              onClick={() => setIsAboutOpen(false)}
-              aria-label="关闭关于窗口"
-              title="关闭"
-              autoFocus
+            <aside
+              className="outline-sidebar"
+              style={{ width: outlineWidth, flex: `0 0 ${outlineWidth}px` }}
             >
-              ×
-            </button>
-            <div className="about-dialog-hero">
-              <div className="about-dialog-logo-frame">
-                <img className="about-dialog-logo" src={appIconUrl} alt="LightMarkit 图标" />
-              </div>
-              <h2 id="about-dialog-title">LightMarkit</h2>
-              <p className="about-dialog-version">版本 {APP_VERSION}</p>
-              <p className="about-dialog-description">
-                一款轻量、简洁的 Markdown 编辑器，支持实时预览、文档大纲、Mermaid 图表与多格式导出。
-              </p>
-            </div>
-
-            <div className="about-feature-grid" aria-label="产品特点">
-              <div className="about-feature-card">
-                <span className="about-feature-icon" aria-hidden="true">
-                  #
-                </span>
-                <div>
-                  <h3>专注写作</h3>
-                  <p>简洁的 Markdown 编辑与实时预览</p>
-                </div>
-              </div>
-              <div className="about-feature-card">
-                <span className="about-feature-icon" aria-hidden="true">
-                  ↔
-                </span>
-                <div>
-                  <h3>轻巧高效</h3>
-                  <p>基于 Tauri 构建，快速启动、低资源占用</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="about-details">
-              <div className="about-detail-row">
-                <span className="about-detail-label">开源许可</span>
-                <span className="about-detail-value">MIT License</span>
-              </div>
-              <div className="about-detail-row">
-                <span className="about-detail-label">项目主页</span>
-                <a
-                  href={REPOSITORY_URL}
-                  className="about-repository-link"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    void openUrl(REPOSITORY_URL)
-                  }}
-                >
-                  GitHub
-                </a>
-              </div>
-              <div className="about-detail-row about-update-row">
-                <div>
-                  <span className="about-detail-label">软件更新</span>
-                  {updateStatus.state === 'latest' && (
-                    <p role="status" className="about-update-status latest">
-                      当前已是最新版本 v{updateStatus.version}
-                    </p>
-                  )}
-                  {updateStatus.state === 'available' && (
-                    <p role="status" className="about-update-status available">
-                      发现新版本 v{updateStatus.version}
-                    </p>
-                  )}
-                  {updateStatus.state === 'downloading' && (
-                    <div className="about-update-progress" role="status" aria-live="polite">
-                      <span>
-                        正在下载 v{updateStatus.version}：{updateStatus.progress}%
-                      </span>
-                      <progress max="100" value={updateStatus.progress}>
-                        {updateStatus.progress}%
-                      </progress>
-                    </div>
-                  )}
-                  {updateStatus.state === 'installing' && (
-                    <p role="status" className="about-update-status available">
-                      下载完成，正在验证签名并安装 v{updateStatus.version}…
-                    </p>
-                  )}
-                  {updateStatus.state === 'error' && (
-                    <p role="alert" className="about-update-status error">
-                      {updateStatus.message}
-                    </p>
-                  )}
-                </div>
-                {updateStatus.state === 'available' ? (
-                  <button
-                    type="button"
-                    className="about-update-button"
-                    onClick={() => void handleInstallUpdate()}
-                  >
-                    下载并安装
-                  </button>
-                ) : updateStatus.state === 'downloading' ? (
-                  <button type="button" className="about-update-button" disabled>
-                    下载中 {updateStatus.progress}%
-                  </button>
-                ) : updateStatus.state === 'installing' ? (
-                  <button type="button" className="about-update-button" disabled>
-                    正在安装…
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="about-update-button secondary"
-                    onClick={() => void handleCheckForUpdates()}
-                    disabled={updateStatus.state === 'checking'}
-                  >
-                    {updateStatus.state === 'checking' ? '正在检查…' : '检查更新'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <p className="about-dialog-footer">© 2026 zhtdbobo · 让 Markdown 写作更轻松</p>
-          </section>
-        </div>
-      )}
+              <Outline
+                items={outlineItems}
+                activeItemId={activeOutlineId}
+                onItemClick={handleOutlineItemClick}
+              />
+              <div
+                className="outline-resizer"
+                onPointerDown={handleOutlineResizeStart}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整大纲栏宽度"
+                title="拖动调整大纲栏宽度"
+              />
+            </aside>
+          </div>
+          </div>
+        )}
+      </main>
     </div>
   )
 }

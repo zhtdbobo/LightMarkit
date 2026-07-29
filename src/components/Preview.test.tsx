@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Preview } from './Preview'
@@ -85,6 +85,22 @@ describe('Preview', () => {
 
     expect(inlineCode).toHaveTextContent('inline code')
     expect(codeBlock).toHaveTextContent('code block')
+    expect(screen.getByRole('button', { name: '复制代码' })).toBeInTheDocument()
+  })
+
+  it('should copy preview code blocks', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    render(<Preview content={'```ts\nconst answer = 42\n```'} />)
+
+    await user.click(screen.getByRole('button', { name: '复制代码' }))
+
+    expect(writeText).toHaveBeenCalledWith('const answer = 42')
+    expect(screen.getByRole('button', { name: '复制代码' })).toHaveTextContent('已复制')
   })
 
   it('应该正确渲染引用块', () => {

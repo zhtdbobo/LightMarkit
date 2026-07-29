@@ -274,9 +274,40 @@ body,
 
 .menu-trigger:focus-visible,
 .menu-item:focus-visible,
+.undo-button:focus-visible,
 .mode-button:focus-visible {
   outline: 2px solid rgba(26, 115, 232, 0.35);
   outline-offset: 2px;
+}
+
+.undo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 100%;
+  min-width: 34px;
+  min-height: 0;
+  padding: 0;
+  color: #111111;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.undo-button:hover:not(:disabled),
+.undo-button:focus-visible:not(:disabled) {
+  color: #202124;
+  background-color: #e5f3ff;
+}
+
+.undo-button:disabled {
+  color: #a5acb5;
+  cursor: default;
 }
 
 .view-mode-switcher {
@@ -496,7 +527,7 @@ body,
   border-left: 1px solid #dde3ea;
 }
 
-.outline-toolbar-toggle {
+.settings-menu {
   margin-left: 4px;
 }
 
@@ -515,12 +546,6 @@ body,
 .editor-preview-container.mode-edit .editor-panel {
   flex: 1;
   width: 100%;
-}
-
-/* 分屏模式 */
-.editor-preview-container.mode-split .editor-panel,
-.editor-preview-container.mode-split .preview-panel {
-  flex: 0 0 auto;
 }
 
 /* 纯预览模式 */
@@ -549,6 +574,234 @@ body,
 .app-main .editor-wrapper {
   flex: 1;
   height: 100%;
+}
+
+.settings-page {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: #101828;
+  background: #f5f7fa;
+}
+
+.settings-sidebar {
+  min-width: 0;
+  padding: 26px 14px;
+  background: #eef1f5;
+  border-right: 1px solid #dfe3e8;
+}
+
+.settings-sidebar-header {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  margin-bottom: 20px;
+}
+
+.settings-page.platform-macos .settings-sidebar-header {
+  gap: 12px;
+}
+
+.settings-sidebar-header h1 {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.settings-navigation {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-navigation-item {
+  width: 100%;
+  padding: 9px 12px;
+  color: #475467;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+}
+
+.settings-navigation-item:hover,
+.settings-navigation-item:focus-visible {
+  color: #175cd3;
+  background: #e4e7ec;
+  outline: none;
+}
+
+.settings-navigation-item.active {
+  color: #175cd3;
+  background: #dbeafe;
+}
+
+.settings-detail {
+  position: relative;
+  min-width: 0;
+  padding: 36px 48px 64px;
+  overflow-y: auto;
+}
+
+.settings-detail-section {
+  width: min(880px, 100%);
+  margin: 0 auto;
+}
+
+.settings-content-header {
+  padding-right: 42px;
+  margin-bottom: 24px;
+}
+
+.settings-content-header h2 {
+  font-size: 24px;
+  line-height: 32px;
+}
+
+.settings-content-header p {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.settings-close-button {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #667085;
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  place-items: center;
+}
+
+.settings-page.platform-macos .settings-close-button {
+  position: static;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  font-size: 18px;
+}
+
+.settings-close-button:hover,
+.settings-close-button:focus-visible {
+  color: #101828;
+  background: #e4e7ec;
+  outline: none;
+}
+
+.settings-card {
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+}
+
+.settings-card-heading h3 {
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.settings-card-heading p {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.settings-width-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.settings-width-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px;
+  color: #344054;
+  text-align: left;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  border-radius: 9px;
+}
+
+.settings-width-card:hover,
+.settings-width-card:focus-visible {
+  border-color: #84caff;
+  outline: none;
+}
+
+.settings-width-card.selected {
+  background: #eff8ff;
+  border-color: #1570ef;
+  box-shadow: 0 0 0 1px #1570ef;
+}
+
+.settings-width-card strong,
+.settings-width-card small {
+  display: block;
+}
+
+.settings-width-card strong {
+  color: #101828;
+  font-size: 14px;
+}
+
+.settings-width-card small {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.settings-width-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 96px;
+  height: 58px;
+  padding: 12px 8px;
+  background: #f8fafc;
+  border: 1px solid #d0d5dd;
+  border-radius: 5px;
+}
+
+.settings-width-preview i {
+  display: block;
+  height: 3px;
+  background: #98a2b3;
+  border-radius: 2px;
+}
+
+.settings-width-preview.reading i {
+  width: 58%;
+  margin: 0 auto;
+}
+
+.settings-about-card .about-dialog-hero {
+  padding-top: 4px;
 }
 
 .about-dialog-backdrop {
@@ -723,6 +976,11 @@ body,
 }
 
 .about-repository-link {
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
   color: #1a73e8;
   font-weight: 500;
   text-decoration: none;
@@ -821,6 +1079,30 @@ body,
 }
 
 @media (max-width: 560px) {
+  .settings-page {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+
+  .settings-sidebar {
+    padding: 18px 8px;
+  }
+
+  .settings-sidebar-header {
+    padding: 0 6px;
+  }
+
+  .settings-detail {
+    padding: 24px 14px 40px;
+  }
+
+  .settings-width-options {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card {
+    padding: 18px;
+  }
+
   .about-dialog-backdrop {
     padding: 12px;
   }
@@ -839,7 +1121,16 @@ body,
   }
 }
 
-@media (max-width: 900px) {
+@media (min-width: 561px) and (max-width: 900px) {
+  .settings-page {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+
+  .settings-detail {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
   .app-header {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
@@ -900,6 +1191,20 @@ body,
     border-color: #4a4d4f;
   }
 
+  .undo-button {
+    color: #d4d4d4;
+  }
+
+  .undo-button:hover:not(:disabled),
+  .undo-button:focus-visible:not(:disabled) {
+    color: #ffffff;
+    background-color: #333638;
+  }
+
+  .undo-button:disabled {
+    color: #62676d;
+  }
+
   .menu-panel {
     background-color: #252526;
     border-color: #3e3e42;
@@ -914,6 +1219,80 @@ body,
   .menu-item:focus-visible {
     color: #4fc3f7;
     background-color: #2a2d2e;
+  }
+
+  .settings-page {
+    color: #f1f3f4;
+    background: #1e1e1e;
+  }
+
+  .settings-content-header p,
+  .settings-card-heading p,
+  .settings-width-card small {
+    color: #b8b8b8;
+  }
+
+  .settings-sidebar-header h1,
+  .settings-content-header h2,
+  .settings-card-heading h3,
+  .settings-width-card strong {
+    color: #ffffff;
+  }
+
+  .settings-sidebar {
+    background: #252526;
+    border-right-color: #3e3e42;
+  }
+
+  .settings-navigation-item {
+    color: #b8b8b8;
+  }
+
+  .settings-navigation-item:hover,
+  .settings-navigation-item:focus-visible {
+    color: #ffffff;
+    background: #2a2d2e;
+  }
+
+  .settings-navigation-item.active {
+    color: #4fc3f7;
+    background: #1e3448;
+  }
+
+  .settings-card,
+  .settings-width-card {
+    background: #252526;
+    border-color: #3e3e42;
+  }
+
+  .settings-close-button,
+  .settings-width-card {
+    color: #d4d4d4;
+  }
+
+  .settings-close-button:hover,
+  .settings-close-button:focus-visible,
+  .settings-width-card:hover,
+  .settings-width-card:focus-visible {
+    color: #ffffff;
+    background: #2a2d2e;
+    border-color: #4fc3f7;
+  }
+
+  .settings-width-card.selected {
+    color: #ffffff;
+    background: #1e3448;
+    border-color: #4fc3f7;
+    box-shadow: 0 0 0 1px #4fc3f7;
+  }
+
+  .settings-width-preview {
+    background: #1e1e1e;
+    border-color: #4a4d4f;
+  }
+
+  .settings-width-preview i {
+    background: #858585;
   }
 
   .view-mode-switcher {

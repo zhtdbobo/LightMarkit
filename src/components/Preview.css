@@ -136,7 +136,8 @@
 }
 
 .preview-container .preview-code-block pre {
-  padding-right: 3.25rem;
+  padding-top: 3.2rem;
+  padding-right: 1rem;
   margin: 0;
 }
 
@@ -154,7 +155,7 @@
   align-items: center;
   min-width: 0;
   height: 100%;
-  padding: 0 3.25rem 0 0.75rem;
+  padding: 0 7.4rem 0 0.75rem;
   color: #555555;
 }
 
@@ -212,6 +213,46 @@
   border: 1px solid #d5d5d5;
   border-radius: 4px;
   place-items: center;
+}
+
+.preview-container .preview-code-copy {
+  position: absolute;
+  top: 7px;
+  right: 42px;
+  z-index: 2;
+  min-width: 58px;
+  height: 28px;
+  padding: 0 9px;
+  color: #555555;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid #d5d5d5;
+  border-radius: 4px;
+}
+
+.preview-container .preview-code-copy:hover {
+  color: #111111;
+  background-color: #f2f2f2;
+  border-color: #bcbcbc;
+}
+
+.preview-container .preview-code-copy.is-copied {
+  color: #067647;
+  background: #ecfdf3;
+  border-color: #abefc6;
+}
+
+.preview-container .preview-code-copy.is-error {
+  color: #b42318;
+  background: #fef3f2;
+  border-color: #fecdca;
+}
+
+.preview-container .preview-code-copy:focus-visible {
+  outline: 2px solid #222222;
+  outline-offset: 2px;
 }
 
 .preview-container .preview-code-toggle::before {

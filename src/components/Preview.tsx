@@ -4,6 +4,7 @@ import {
   renderMarkdownToHtml,
   renderMermaidDiagrams,
 } from '../utils/markdownRenderer'
+import { copyTextToClipboard } from '../utils/clipboard'
 import './Preview.css'
 
 interface PreviewProps {
@@ -42,6 +43,7 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
 
     const documentKey = currentFile ?? '__untitled__'
     const collapsedBlockKeys = collapsedCodeBlocksRef.current.get(documentKey) ?? new Set<string>()
+    const feedbackTimers: number[] = []
 
     root.querySelectorAll<HTMLPreElement>('pre').forEach((codeBlock, index) => {
       const sourceLine = codeBlock.getAttribute('data-source-line')
@@ -51,6 +53,7 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
       const languageLabel = document.createElement('span')
       const firstLineLabel = document.createElement('span')
       const lineCountLabel = document.createElement('span')
+      const copyButton = document.createElement('button')
       const toggle = document.createElement('button')
       const codeElement = codeBlock.querySelector('code')
       const normalizedCode = (codeElement?.textContent ?? '')
@@ -77,6 +80,32 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
       lineCountLabel.textContent = `${codeLines.length} 行`
       summary.append(languageLabel, firstLineLabel, lineCountLabel)
       wrapper.append(summary)
+
+      copyButton.type = 'button'
+      copyButton.className = 'preview-code-copy'
+      copyButton.textContent = '复制'
+      copyButton.setAttribute('aria-label', '复制代码')
+      copyButton.title = '复制代码'
+      copyButton.addEventListener('click', () => {
+        void copyTextToClipboard(normalizedCode)
+          .then(() => {
+            copyButton.textContent = '已复制'
+            copyButton.classList.add('is-copied')
+          })
+          .catch(() => {
+            copyButton.textContent = '复制失败'
+            copyButton.classList.add('is-error')
+          })
+          .finally(() => {
+            feedbackTimers.push(
+              window.setTimeout(() => {
+                copyButton.textContent = '复制'
+                copyButton.classList.remove('is-copied', 'is-error')
+              }, 1600)
+            )
+          })
+      })
+      wrapper.append(copyButton)
 
       toggle.type = 'button'
       toggle.className = 'preview-code-toggle'
@@ -111,6 +140,10 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
     void renderMermaidDiagrams(root).catch((error) => {
       console.error('Mermaid rendering error:', error)
     })
+
+    return () => {
+      feedbackTimers.forEach((timer) => window.clearTimeout(timer))
+    }
   }, [renderedHtml, currentFile])
 
   return (
