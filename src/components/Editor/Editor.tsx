@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
 import { createEditingExtensions } from './extensions'
 import { createLivePreview } from './livePreview'
 import './Editor.css'
@@ -51,11 +52,9 @@ const Editor: React.FC<EditorProps> = ({
       extensions: [
         basicSetup,
         EditorView.lineWrapping,
-        markdown(),
+        markdown({ codeLanguages: languages }),
         ...createEditingExtensions(),
-        livePreviewCompartmentRef.current.of(
-          wysiwyg ? createLivePreview({ currentFile }) : []
-        ),
+        livePreviewCompartmentRef.current.of(wysiwyg ? createLivePreview({ currentFile }) : []),
         EditorView.editable.of(!readOnly),
         EditorView.updateListener.of((update) => {
           onUpdate?.(update.view)

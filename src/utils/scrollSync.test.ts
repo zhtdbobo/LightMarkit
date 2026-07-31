@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolvePreviewSourceLine } from './scrollSync'
+import { previewScrollTopForSourceLine, resolvePreviewSourceLine } from './scrollSync'
 
 function setRect(element: HTMLElement, top: number, height: number): void {
   element.getBoundingClientRect = () =>
@@ -72,5 +72,20 @@ describe('resolvePreviewSourceLine', () => {
 
     setRect(next, 185, 80)
     expect(resolvePreviewSourceLine(scroller)).toBe(35)
+  })
+})
+
+describe('previewScrollTopForSourceLine', () => {
+  it('returns the exact scroll position that places the source block at the top', () => {
+    const scroller = createScroller()
+    const heading = document.createElement('h2')
+    heading.dataset.sourceLine = '24'
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, value: 320 })
+    setRect(scroller, 40, 600)
+    setRect(heading, 190, 36)
+    scroller.append(heading)
+
+    expect(previewScrollTopForSourceLine(scroller, 24)).toBe(470)
+    expect(previewScrollTopForSourceLine(scroller, 25)).toBeNull()
   })
 })

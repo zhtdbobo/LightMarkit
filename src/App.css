@@ -189,7 +189,8 @@ body,
 
 .app-menu-bar .menu-trigger:hover,
 .app-menu-bar .menu-trigger:focus-visible,
-.app-menu-bar .toolbar-menu.open .menu-trigger {
+.app-menu-bar .toolbar-menu.open .menu-trigger,
+.app-menu-bar .settings-trigger.active {
   color: #202124;
   background-color: #e5f3ff;
   border-color: transparent;
@@ -274,8 +275,7 @@ body,
 
 .menu-trigger:focus-visible,
 .menu-item:focus-visible,
-.undo-button:focus-visible,
-.mode-button:focus-visible {
+.undo-button:focus-visible {
   outline: 2px solid rgba(26, 115, 232, 0.35);
   outline-offset: 2px;
 }
@@ -308,45 +308,6 @@ body,
 .undo-button:disabled {
   color: #a5acb5;
   cursor: default;
-}
-
-.view-mode-switcher {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background-color: #f6f6f6;
-  border-radius: 6px;
-}
-
-.mode-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 26px;
-  min-width: 30px;
-  min-height: 26px;
-  padding: 0;
-  color: #5f6368;
-  background-color: transparent;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.mode-button:hover {
-  color: #1a73e8;
-  background-color: #e8e8e8;
-}
-
-.mode-button.active {
-  color: #ffffff;
-  background-color: #1a73e8;
-  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.3);
 }
 
 .mode-icon {
@@ -525,10 +486,6 @@ body,
   overflow: hidden;
   background: #f7f9fc;
   border-left: 1px solid #dde3ea;
-}
-
-.settings-menu {
-  margin-left: 4px;
 }
 
 .outline-resizer {
@@ -1185,7 +1142,8 @@ body,
 
   .app-menu-bar .menu-trigger:hover,
   .app-menu-bar .menu-trigger:focus-visible,
-  .app-menu-bar .toolbar-menu.open .menu-trigger {
+  .app-menu-bar .toolbar-menu.open .menu-trigger,
+  .app-menu-bar .settings-trigger.active {
     color: #ffffff;
     background-color: #333638;
     border-color: #4a4d4f;
@@ -1293,25 +1251,6 @@ body,
 
   .settings-width-preview i {
     background: #858585;
-  }
-
-  .view-mode-switcher {
-    background-color: #1e1e1e;
-  }
-
-  .mode-button {
-    color: #9e9e9e;
-  }
-
-  .mode-button:hover {
-    color: #4fc3f7;
-    background-color: #2a2d2e;
-  }
-
-  .mode-button.active {
-    color: #1e1e1e;
-    background-color: #4fc3f7;
-    box-shadow: 0 1px 3px rgba(79, 195, 247, 0.3);
   }
 
   .app-main {

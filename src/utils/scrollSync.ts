@@ -101,6 +101,27 @@ export function collectPreviewAnchors(previewRoot: HTMLElement): SourceAnchor[] 
   return anchors
 }
 
+/** 返回指定源码行对应预览块置于滚动容器顶部时的 scrollTop。 */
+export function previewScrollTopForSourceLine(
+  previewScroller: HTMLElement,
+  line: number
+): number | null {
+  const elements = Array.from(
+    previewScroller.querySelectorAll<HTMLElement>('[data-source-line]')
+  )
+  const target = elements.find((element) => parseSourceLine(element) === line)
+
+  if (!target) {
+    return null
+  }
+
+  const scrollerTop = previewScroller.getBoundingClientRect().top
+  return Math.max(
+    0,
+    target.getBoundingClientRect().top - scrollerTop + previewScroller.scrollTop
+  )
+}
+
 export function estimateEditorLineFromScroll(
   scroller: HTMLElement,
   totalLines: number

@@ -26,6 +26,7 @@ const CODE_LANGUAGE_LABELS: Record<string, string> = {
 
 export function Preview({ content, currentFile = null, className = '' }: PreviewProps) {
   const previewRef = useRef<HTMLDivElement>(null)
+  const previewContentRef = useRef<HTMLDivElement>(null)
   const collapsedCodeBlocksRef = useRef<Map<string, Set<string>>>(new Map())
   const renderedHtml = useMemo(
     () => renderMarkdownToHtml(content, { currentFile }),
@@ -33,7 +34,7 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
   )
 
   useEffect(() => {
-    const root = previewRef.current
+    const root = previewContentRef.current
 
     if (!root) {
       return
@@ -46,7 +47,9 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
     const feedbackTimers: number[] = []
 
     root.querySelectorAll<HTMLPreElement>('pre').forEach((codeBlock, index) => {
-      const sourceLine = codeBlock.getAttribute('data-source-line')
+      const codeElement = codeBlock.querySelector('code')
+      const sourceLine =
+        codeBlock.getAttribute('data-source-line') ?? codeElement?.getAttribute('data-source-line')
       const blockKey = sourceLine ? `line-${sourceLine}` : `index-${index}`
       const wrapper = document.createElement('div')
       const summary = document.createElement('div')
@@ -55,7 +58,6 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
       const lineCountLabel = document.createElement('span')
       const copyButton = document.createElement('button')
       const toggle = document.createElement('button')
-      const codeElement = codeBlock.querySelector('code')
       const normalizedCode = (codeElement?.textContent ?? '')
         .replace(/\r\n?/g, '\n')
         .replace(/\n$/, '')
@@ -151,6 +153,8 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
       ref={previewRef}
       className={`preview-container ${className}`}
       data-testid="preview-container"
-    />
+    >
+      <div ref={previewContentRef} className="preview-content" />
+    </div>
   )
 }

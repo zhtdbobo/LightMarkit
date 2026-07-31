@@ -1,10 +1,11 @@
 .preview-container {
+  width: 100%;
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
-  padding: 1.25rem 1.5rem 2rem;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
   overflow-wrap: anywhere;
   color: #222222;
   font-family:
@@ -16,7 +17,22 @@
   -webkit-print-color-adjust: exact;
 }
 
-.preview-container > :first-child {
+.preview-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 920px;
+  min-height: 100%;
+  padding: 40px 56px max(120px, calc(100vh - 80px));
+  margin: 0 auto;
+}
+
+.preview-container.full-width-preview .preview-content {
+  max-width: none;
+  padding-right: 24px;
+  padding-left: 24px;
+}
+
+.preview-content > :first-child {
   margin-top: 0;
 }
 
@@ -117,13 +133,13 @@
 .preview-container pre {
   max-width: 100%;
   padding: 1em;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   font-size: 85%;
   line-height: 1.45;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: pre;
   background-color: #f7f7f7;
   border: 1px solid #dddddd;
   border-radius: 6px;
@@ -282,6 +298,8 @@
 .preview-container pre code {
   padding: 0;
   margin: 0;
+  overflow-wrap: normal;
+  word-break: normal;
   white-space: inherit;
   background-color: transparent;
   border-radius: 0;
@@ -317,6 +335,12 @@
   margin-left: 0.25em;
   vertical-align: middle;
   accent-color: #222222;
+}
+
+/* 预览为只读视图，复选框不可勾选，但保持清晰而非灰暗 */
+.preview-container .task-list-item-checkbox[disabled] {
+  cursor: default;
+  opacity: 1;
 }
 
 .preview-container blockquote {
@@ -403,4 +427,62 @@
   background-color: #ffffff !important;
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
+}
+
+.preview-container .mermaid[data-mermaid-error='true'] {
+  text-align: left;
+  background-color: #fff8f8;
+  border-color: #e5b4b4;
+}
+
+.preview-container .mermaid-error-title {
+  display: block;
+  margin-bottom: 8px;
+  color: #a33a3a;
+}
+
+.preview-container .mermaid-error-message {
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  overflow-x: auto;
+  font-size: 0.85em;
+  color: #a33a3a;
+  background-color: #fdeeee;
+  border-radius: 4px;
+}
+
+.preview-container .mermaid-error-source {
+  padding: 8px 10px;
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.85em;
+  color: #555555;
+  background-color: #f7f7f7;
+  border-radius: 4px;
+}
+
+.preview-container .footnotes {
+  padding-top: 12px;
+  margin-top: 32px;
+  font-size: 0.9em;
+  color: #555555;
+  border-top: 1px solid #dddddd;
+}
+
+.preview-container .footnotes ol {
+  margin-bottom: 0;
+}
+
+.preview-container .footnote-item p {
+  margin-bottom: 0.5em;
+}
+
+.preview-container .footnote-ref a {
+  padding: 0 2px;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+
+.preview-container .footnote-backref {
+  text-decoration: none;
 }

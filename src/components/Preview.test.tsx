@@ -50,6 +50,8 @@ describe('Preview', () => {
     expect(checkboxes).toHaveLength(2)
     expect(checkboxes[0]).toBeChecked()
     expect(checkboxes[1]).not.toBeChecked()
+    expect(checkboxes[0]).toBeDisabled()
+    expect(checkboxes[1]).toBeDisabled()
   })
 
   it('应该正确渲染删除线', () => {
@@ -190,6 +192,16 @@ describe('Preview', () => {
     expect(container.querySelector('h4')).toHaveTextContent('H4 标题')
     expect(container.querySelector('h5')).toHaveTextContent('H5 标题')
     expect(container.querySelector('h6')).toHaveTextContent('H6 标题')
+  })
+
+  it('应该正确渲染脚注', () => {
+    const content = '正文引用了脚注[^1]。\n\n[^1]: 第一条脚注'
+    render(<Preview content={content} />)
+
+    const container = screen.getByTestId('preview-container')
+    expect(container.querySelector('.footnote-ref')).toBeInTheDocument()
+    expect(container.querySelector('.footnotes')).toBeInTheDocument()
+    expect(container.querySelector('.footnote-item')).toHaveTextContent('第一条脚注')
   })
 
   it('应该自动将 URL 转换为链接', () => {

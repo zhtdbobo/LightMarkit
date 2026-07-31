@@ -49,7 +49,7 @@ describe('App window close behavior', () => {
     )
   })
 
-  it('saves the current file before closing the custom window', async () => {
+  it('does not rewrite an unchanged current file before closing the custom window', async () => {
     const currentPath = 'C:\\notes\\draft.md'
     vi.mocked(getCurrentFile).mockResolvedValue(currentPath)
     vi.mocked(fileRead).mockResolvedValue('# Draft')
@@ -64,9 +64,32 @@ describe('App window close behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
 
     await waitFor(() => {
-      expect(fileWrite).toHaveBeenCalledWith(currentPath, '# Draft')
       expect(mockWindow.destroy).toHaveBeenCalledTimes(1)
     })
+
+    expect(fileWrite).not.toHaveBeenCalled()
+  })
+
+  it('saves a modified current file before closing the custom window', async () => {
+    const currentPath = 'C:\\notes\\draft.md'
+    vi.mocked(getCurrentFile).mockResolvedValue(currentPath)
+    vi.mocked(fileRead).mockResolvedValue('# Draft')
+    vi.mocked(fileWrite).mockResolvedValue()
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await waitFor(() => expect(fileRead).toHaveBeenCalledWith(currentPath))
+    const editorElement = screen.getByTestId('editor-container').querySelector('.cm-content')
+    await user.click(editorElement!)
+    await user.keyboard(' updated')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    await waitFor(() => {
+      expect(fileWrite).toHaveBeenCalledWith(currentPath, expect.any(String))
+      expect(mockWindow.destroy).toHaveBeenCalledTimes(1)
+    })
+    expect(vi.mocked(fileWrite).mock.calls[0][1]).not.toBe('# Draft')
 
     expect(vi.mocked(fileWrite).mock.invocationCallOrder[0]).toBeLessThan(
       mockWindow.destroy.mock.invocationCallOrder[0]

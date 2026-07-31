@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import footnote from 'markdown-it-footnote'
 import taskLists from 'markdown-it-task-lists'
 import { readImageAsDataUrl } from './imageApi'
 
@@ -163,11 +164,13 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: true,
 })
+  // 预览为只读视图，复选框仅作展示；勾选请在编辑器中进行
   .use(taskLists, {
-    enabled: true,
+    enabled: false,
     label: true,
     labelAfter: true,
   })
+  .use(footnote)
   .enable(['table', 'strikethrough'])
 
 const defaultValidateLink = md.validateLink.bind(md)
@@ -253,18 +256,46 @@ export async function renderMermaidDiagrams(root: ParentNode): Promise<void> {
       }
 
       const id = `mermaid-${Date.now()}-${index}`
-      const { svg, bindFunctions } = await mermaid.render(id, graphDefinition)
 
-      element.innerHTML = svg
-      element.querySelectorAll<SVGTextElement>('text').forEach((textElement) => {
-        const hasExplicitFill = textElement.hasAttribute('fill')
-        const hasStyleFill = /(?:^|;)\s*fill\s*:/.test(textElement.getAttribute('style') ?? '')
+      try {
+        const { svg, bindFunctions } = await mermaid.render(id, graphDefinition)
 
-        if (!hasExplicitFill && !hasStyleFill) {
-          textElement.setAttribute('fill', 'currentColor')
-        }
-      })
-      bindFunctions?.(element)
+        element.innerHTML = svg
+        element.removeAttribute('data-mermaid-error')
+        element.querySelectorAll<SVGTextElement>('text').forEach((textElement) => {
+          const hasExplicitFill = textElement.hasAttribute('fill')
+          const hasStyleFill = /(?:^|;)\s*fill\s*:/.test(textElement.getAttribute('style') ?? '')
+
+          if (!hasExplicitFill && !hasStyleFill) {
+            textElement.setAttribute('fill', 'currentColor')
+          }
+        })
+        bindFunctions?.(element)
+      } catch (error) {
+        // 单个图表失败不应影响其他图表，同时要让用户看到失败原因而不是一段原始文本
+        const message = error instanceof Error ? error.message : String(error)
+
+        element.setAttribute('data-mermaid-error', 'true')
+        element.textContent = ''
+
+        const errorTitle = document.createElement('strong')
+        errorTitle.className = 'mermaid-error-title'
+        errorTitle.textContent = 'Mermaid 图表渲染失败'
+
+        const errorMessage = document.createElement('pre')
+        errorMessage.className = 'mermaid-error-message'
+        errorMessage.textContent = message
+
+        const source = document.createElement('pre')
+        source.className = 'mermaid-error-source'
+        source.textContent = graphDefinition
+
+        element.append(errorTitle, errorMessage, source)
+
+        // mermaid 解析失败时会把临时节点留在 body 上，需要自行清理
+        document.getElementById(id)?.remove()
+        document.getElementById(`d${id}`)?.remove()
+      }
     })
   )
 }

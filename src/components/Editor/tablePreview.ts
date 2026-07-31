@@ -200,34 +200,32 @@ class MarkdownTableWidget extends WidgetType {
 
   toDOM(view: EditorView): HTMLElement {
     const root = document.createElement('div')
+    const toolbar = document.createElement('div')
     const tableShell = document.createElement('span')
     const tableElement = document.createElement('table')
-    const contextActions = document.createElement('div')
 
     root.className = 'cm-markdown-table'
     root.setAttribute('aria-label', 'Markdown 表格')
     root.dataset.tableFrom = String(this.table.from)
+    toolbar.className = 'cm-markdown-table-toolbar'
+    toolbar.setAttribute('role', 'toolbar')
+    toolbar.setAttribute('aria-label', '当前单元格操作')
+    toolbar.hidden = true
     tableShell.className = 'cm-markdown-table-shell'
     tableElement.className = 'cm-markdown-table-grid'
-    contextActions.className = 'cm-markdown-table-context-actions'
-    contextActions.setAttribute('role', 'toolbar')
-    contextActions.setAttribute('aria-label', '表格边框操作')
-    contextActions.hidden = true
 
     const cellInputs: HTMLInputElement[][] = []
     let selectedContainer: HTMLTableCellElement | null = null
+    let selectedPosition: TableCellPosition = {
+      rowIndex: this.table.rows.length > 0 ? 1 : 0,
+      columnIndex: 0,
+    }
 
     const readCurrentTable = (): MarkdownTable => ({
       ...this.table,
       headers: cellInputs[0].map((input) => input.value),
       rows: cellInputs.slice(1).map((row) => row.map((input) => input.value)),
     })
-
-    const selectCell = (container: HTMLTableCellElement) => {
-      selectedContainer?.classList.remove('is-active-cell')
-      selectedContainer = container
-      selectedContainer.classList.add('is-active-cell')
-    }
 
     const commitCells = () => {
       const next: MarkdownTable = {
@@ -238,248 +236,246 @@ class MarkdownTableWidget extends WidgetType {
       this.updateTable(view, next)
     }
 
-    const addContextAction = (
+    const createActionButton = (
       label: string,
       title: string,
       action: (table: MarkdownTable) => TableActionResult,
       destructive = false
-    ) => {
+    ): HTMLButtonElement => {
       const button = document.createElement('button')
       button.type = 'button'
-      button.className = `cm-markdown-table-context-action${destructive ? ' is-destructive' : ''}`
+      button.className = `cm-markdown-table-action${destructive ? ' is-destructive' : ''}`
       button.textContent = label
       button.title = title
       button.setAttribute('aria-label', title)
+      button.setAttribute('role', 'menuitem')
       button.addEventListener('mousedown', (event) => event.preventDefault())
       button.addEventListener('click', () => {
         const result = action(readCurrentTable())
         this.updateTable(view, result.table, result.focusCell)
       })
-      contextActions.append(button)
+      return button
     }
 
-    const placeContextActions = (handle: HTMLElement, axis: 'column' | 'row') => {
-      const rootRect = root.getBoundingClientRect()
-      const handleRect = handle.getBoundingClientRect()
-      const handleCenterX = handleRect.left - rootRect.left + handleRect.width / 2
-      const handleCenterY = handleRect.top - rootRect.top + handleRect.height / 2
-
-      contextActions.hidden = false
-      contextActions.classList.remove(
-        'is-edge-top',
-        'is-edge-right',
-        'is-edge-bottom',
-        'is-edge-left'
-      )
-
-      if (axis === 'column') {
-        const useTopEdge = handleCenterY <= rootRect.height / 2
-        contextActions.classList.add(useTopEdge ? 'is-edge-top' : 'is-edge-bottom')
-
-        const actionsRect = contextActions.getBoundingClientRect()
-        const horizontalInset = actionsRect.width / 2 + 6
-        const left = Math.min(
-          Math.max(handleCenterX, horizontalInset),
-          Math.max(horizontalInset, rootRect.width - horizontalInset)
-        )
-
-        contextActions.style.left = `${left}px`
-        contextActions.style.top = `${useTopEdge ? 0 : rootRect.height}px`
-      } else {
-        const useLeftEdge = handleCenterX <= rootRect.width / 2
-        contextActions.classList.add(useLeftEdge ? 'is-edge-left' : 'is-edge-right')
-
-        const actionsRect = contextActions.getBoundingClientRect()
-        const verticalInset = actionsRect.height / 2 + 6
-        const top = Math.min(
-          Math.max(handleCenterY, verticalInset),
-          Math.max(verticalInset, rootRect.height - verticalInset)
-        )
-
-        contextActions.style.left = `${useLeftEdge ? 0 : rootRect.width}px`
-        contextActions.style.top = `${top}px`
-      }
-    }
-
-    const showColumnActions = (
-      rowIndex: number,
-      columnIndex: number,
-      side: 'before' | 'after',
-      handle: HTMLElement
-    ) => {
-      const table = readCurrentTable()
-      const lastColumnIndex = table.headers.length - 1
-      const outerLeft = columnIndex === 0 && side === 'before'
-      const outerRight = columnIndex === lastColumnIndex && side === 'after'
-
-      contextActions.replaceChildren()
-
-      if (!outerRight) {
-        addContextAction('←+', '左侧添加一列', (current) => {
-          const headers = [...current.headers]
-          const alignments = [...current.alignments]
-          headers.splice(columnIndex, 0, '新列')
-          alignments.splice(columnIndex, 0, null)
-          return {
-            table: {
-              ...current,
-              headers,
-              alignments,
-              rows: current.rows.map((row) => {
-                const next = [...row]
-                next.splice(columnIndex, 0, '')
-                return next
-              }),
-            },
-            focusCell: { rowIndex, columnIndex },
-          }
-        })
-      }
-
-      if (!outerLeft) {
-        addContextAction('+→', '右侧添加一列', (current) => {
-          const insertionIndex = columnIndex + 1
-          const headers = [...current.headers]
-          const alignments = [...current.alignments]
-          headers.splice(insertionIndex, 0, '新列')
-          alignments.splice(insertionIndex, 0, null)
-          return {
-            table: {
-              ...current,
-              headers,
-              alignments,
-              rows: current.rows.map((row) => {
-                const next = [...row]
-                next.splice(insertionIndex, 0, '')
-                return next
-              }),
-            },
-            focusCell: { rowIndex, columnIndex: insertionIndex },
-          }
-        })
-      }
-
-      if (table.headers.length > 1) {
-        addContextAction(
-          '−列',
-          '删除本列',
-          (current) => {
-            const headers = [...current.headers]
-            const alignments = [...current.alignments]
-            headers.splice(columnIndex, 1)
-            alignments.splice(columnIndex, 1)
-            return {
-              table: {
-                ...current,
-                headers,
-                alignments,
-                rows: current.rows.map((row) => {
-                  const next = [...row]
-                  next.splice(columnIndex, 1)
-                  return next
-                }),
-              },
-              focusCell: {
-                rowIndex,
-                columnIndex: Math.min(columnIndex, headers.length - 1),
-              },
-            }
-          },
-          true
-        )
-      }
-
-      contextActions.className = 'cm-markdown-table-context-actions is-column'
-      placeContextActions(handle, 'column')
-    }
-
-    const showRowActions = (
-      rowIndex: number,
-      columnIndex: number,
-      side: 'before' | 'after',
-      handle: HTMLElement
-    ) => {
-      const table = readCurrentTable()
-      const lastBodyRowIndex = table.rows.length
-      const outerTop = rowIndex === 1 && side === 'before'
-      const outerBottom = rowIndex === lastBodyRowIndex && side === 'after'
-
-      contextActions.replaceChildren()
-
-      if (rowIndex > 0 && !outerBottom) {
-        addContextAction('↑+', '上方添加一行', (current) => {
-          const rows = [...current.rows]
-          rows.splice(rowIndex - 1, 0, current.headers.map(() => ''))
-          return {
-            table: { ...current, rows },
-            focusCell: { rowIndex, columnIndex },
-          }
-        })
-      }
-
-      if (rowIndex === 0 || !outerTop) {
-        addContextAction('+↓', '下方添加一行', (current) => {
-          const rows = [...current.rows]
-          rows.splice(rowIndex, 0, current.headers.map(() => ''))
-          return {
-            table: { ...current, rows },
-            focusCell: { rowIndex: rowIndex + 1, columnIndex },
-          }
-        })
-      }
-
-      if (rowIndex > 0) {
-        addContextAction(
-          '−行',
-          '删除本行',
-          (current) => {
-            const rows = [...current.rows]
-            rows.splice(rowIndex - 1, 1)
-            return {
-              table: { ...current, rows },
-              focusCell: {
-                rowIndex: Math.min(rowIndex, rows.length),
-                columnIndex,
-              },
-            }
-          },
-          true
-        )
-      }
-
-      contextActions.className = 'cm-markdown-table-context-actions is-row'
-      placeContextActions(handle, 'row')
-    }
-
-    const createEdgeHandle = (
-      axis: 'column' | 'row',
-      side: 'before' | 'after',
-      rowIndex: number,
-      columnIndex: number
-    ) => {
-      const handle = document.createElement('span')
-      const direction =
-        axis === 'column'
-          ? side === 'before'
-            ? 'left'
-            : 'right'
-          : side === 'before'
-            ? 'top'
-            : 'bottom'
-
-      handle.className = `cm-markdown-table-edge cm-markdown-table-edge-${direction}`
-      handle.dataset.rowIndex = String(rowIndex)
-      handle.dataset.columnIndex = String(columnIndex)
-      handle.setAttribute('aria-hidden', 'true')
-      handle.addEventListener('mouseenter', () => {
-        if (axis === 'column') {
-          showColumnActions(rowIndex, columnIndex, side, handle)
-        } else {
-          showRowActions(rowIndex, columnIndex, side, handle)
+    const insertRowAboveButton = createActionButton(
+      '上方插入',
+      '在当前行上方插入一行',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const rows = [...current.rows]
+        rows.splice(rowIndex - 1, 0, current.headers.map(() => ''))
+        return {
+          table: { ...current, rows },
+          focusCell: { rowIndex, columnIndex },
         }
+      }
+    )
+    const insertRowBelowButton = createActionButton(
+      '下方插入',
+      '在当前行下方插入一行',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const rows = [...current.rows]
+        rows.splice(rowIndex, 0, current.headers.map(() => ''))
+        return {
+          table: { ...current, rows },
+          focusCell: { rowIndex: rowIndex + 1, columnIndex },
+        }
+      }
+    )
+    const deleteRowButton = createActionButton(
+      '删除行',
+      '删除当前行',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const rows = [...current.rows]
+        rows.splice(rowIndex - 1, 1)
+        return {
+          table: { ...current, rows },
+          focusCell: {
+            rowIndex: Math.min(rowIndex, rows.length),
+            columnIndex,
+          },
+        }
+      },
+      true
+    )
+
+    const insertColumnLeftButton = createActionButton(
+      '左侧插入',
+      '在当前列左侧插入一列',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const headers = [...current.headers]
+        const alignments = [...current.alignments]
+        headers.splice(columnIndex, 0, '新列')
+        alignments.splice(columnIndex, 0, null)
+        return {
+          table: {
+            ...current,
+            headers,
+            alignments,
+            rows: current.rows.map((row) => {
+              const next = [...row]
+              next.splice(columnIndex, 0, '')
+              return next
+            }),
+          },
+          focusCell: { rowIndex, columnIndex },
+        }
+      }
+    )
+    const insertColumnRightButton = createActionButton(
+      '右侧插入',
+      '在当前列右侧插入一列',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const insertionIndex = columnIndex + 1
+        const headers = [...current.headers]
+        const alignments = [...current.alignments]
+        headers.splice(insertionIndex, 0, '新列')
+        alignments.splice(insertionIndex, 0, null)
+        return {
+          table: {
+            ...current,
+            headers,
+            alignments,
+            rows: current.rows.map((row) => {
+              const next = [...row]
+              next.splice(insertionIndex, 0, '')
+              return next
+            }),
+          },
+          focusCell: { rowIndex, columnIndex: insertionIndex },
+        }
+      }
+    )
+    const deleteColumnButton = createActionButton(
+      '删除列',
+      '删除当前列',
+      (current) => {
+        const { rowIndex, columnIndex } = selectedPosition
+        const headers = [...current.headers]
+        const alignments = [...current.alignments]
+        headers.splice(columnIndex, 1)
+        alignments.splice(columnIndex, 1)
+        return {
+          table: {
+            ...current,
+            headers,
+            alignments,
+            rows: current.rows.map((row) => {
+              const next = [...row]
+              next.splice(columnIndex, 1)
+              return next
+            }),
+          },
+          focusCell: {
+            rowIndex,
+            columnIndex: Math.min(columnIndex, headers.length - 1),
+          },
+        }
+      },
+      true
+    )
+
+    const actionMenus: Array<{
+      trigger: HTMLButtonElement
+      panel: HTMLElement
+    }> = []
+
+    const closeMenus = () => {
+      actionMenus.forEach(({ trigger, panel }) => {
+        panel.hidden = true
+        trigger.setAttribute('aria-expanded', 'false')
       })
-      return handle
     }
+
+    const createActionMenu = (label: string, buttons: HTMLButtonElement[]) => {
+      const menu = document.createElement('span')
+      const trigger = document.createElement('button')
+      const panel = document.createElement('span')
+
+      menu.className = 'cm-markdown-table-menu'
+      trigger.type = 'button'
+      trigger.className = 'cm-markdown-table-menu-trigger'
+      trigger.textContent = label
+      trigger.title = `${label}操作`
+      trigger.setAttribute('aria-label', `${label}操作`)
+      trigger.setAttribute('aria-haspopup', 'menu')
+      trigger.setAttribute('aria-expanded', 'false')
+      panel.className = 'cm-markdown-table-menu-panel'
+      panel.setAttribute('role', 'menu')
+      panel.setAttribute('aria-label', `${label}操作`)
+      panel.hidden = true
+
+      trigger.addEventListener('mousedown', (event) => event.preventDefault())
+      trigger.addEventListener('click', () => {
+        const shouldOpen = panel.hidden
+        closeMenus()
+        panel.hidden = !shouldOpen
+        trigger.setAttribute('aria-expanded', String(shouldOpen))
+      })
+
+      panel.append(...buttons)
+      menu.append(trigger, panel)
+      actionMenus.push({ trigger, panel })
+      return menu
+    }
+
+    const updateToolbarState = () => {
+      const { rowIndex, columnIndex } = selectedPosition
+      const positionLabel =
+        rowIndex === 0
+          ? `表头第 ${columnIndex + 1} 列`
+          : `第 ${rowIndex} 行第 ${columnIndex + 1} 列`
+      toolbar.setAttribute('aria-label', `${positionLabel}操作`)
+      insertRowAboveButton.disabled = rowIndex === 0
+      deleteRowButton.disabled = rowIndex === 0
+      deleteColumnButton.disabled = readCurrentTable().headers.length <= 1
+    }
+
+    const positionToolbar = (container: HTMLTableCellElement) => {
+      const rootRect = root.getBoundingClientRect()
+      const cellRect = container.getBoundingClientRect()
+      const toolbarRect = toolbar.getBoundingClientRect()
+      const halfWidth = Math.max(toolbarRect.width / 2, 96)
+      const cellCenter = cellRect.left - rootRect.left + cellRect.width / 2
+      const left =
+        rootRect.width > halfWidth * 2
+          ? Math.min(Math.max(cellCenter, halfWidth + 6), rootRect.width - halfWidth - 6)
+          : cellCenter
+
+      toolbar.style.left = `${left}px`
+      toolbar.style.top = `${cellRect.top - rootRect.top}px`
+    }
+
+    const selectCell = (
+      container: HTMLTableCellElement,
+      position: TableCellPosition
+    ) => {
+      selectedContainer?.classList.remove('is-active-cell')
+      selectedContainer = container
+      selectedPosition = position
+      selectedContainer.classList.add('is-active-cell')
+      updateToolbarState()
+      closeMenus()
+      toolbar.hidden = false
+      positionToolbar(container)
+    }
+
+    toolbar.append(
+      createActionMenu('行', [
+        insertRowAboveButton,
+        insertRowBelowButton,
+        deleteRowButton,
+      ]),
+      createActionMenu('列', [
+        insertColumnLeftButton,
+        insertColumnRightButton,
+        deleteColumnButton,
+      ])
+    )
 
     const allRows = [this.table.headers, ...this.table.rows]
     allRows.forEach((row, rowIndex) => {
@@ -495,23 +491,12 @@ class MarkdownTableWidget extends WidgetType {
         input.dataset.rowIndex = String(rowIndex)
         input.dataset.columnIndex = String(columnIndex)
         input.setAttribute('aria-label', `第 ${rowIndex + 1} 行第 ${columnIndex + 1} 列`)
-        input.addEventListener('focus', () => selectCell(container))
+        input.addEventListener('focus', () =>
+          selectCell(container, { rowIndex, columnIndex })
+        )
         input.addEventListener('change', commitCells)
         inputs.push(input)
-        container.append(
-          input,
-          createEdgeHandle('column', 'before', rowIndex, columnIndex),
-          createEdgeHandle('column', 'after', rowIndex, columnIndex)
-        )
-
-        if (rowIndex === 0) {
-          container.append(createEdgeHandle('row', 'after', rowIndex, columnIndex))
-        } else {
-          container.append(
-            createEdgeHandle('row', 'before', rowIndex, columnIndex),
-            createEdgeHandle('row', 'after', rowIndex, columnIndex)
-          )
-        }
+        container.append(input)
         tr.append(container)
       })
 
@@ -520,9 +505,23 @@ class MarkdownTableWidget extends WidgetType {
     })
 
     tableShell.append(tableElement)
-    root.append(tableShell, contextActions)
-    root.addEventListener('mouseleave', () => {
-      contextActions.hidden = true
+    root.append(toolbar, tableShell)
+    root.addEventListener('focusout', () => {
+      queueMicrotask(() => {
+        if (root.contains(document.activeElement)) {
+          return
+        }
+
+        closeMenus()
+        toolbar.hidden = true
+        selectedContainer?.classList.remove('is-active-cell')
+        selectedContainer = null
+      })
+    })
+    root.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeMenus()
+      }
     })
     return root
   }

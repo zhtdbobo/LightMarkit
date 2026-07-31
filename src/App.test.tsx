@@ -8,7 +8,7 @@ import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updat
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
-import { fileRead, getCurrentFile } from './utils/fileApi'
+import { fileRead, fileWrite, getCurrentFile } from './utils/fileApi'
 import packageInfo from '../package.json'
 
 // Mock Tauri APIs
@@ -137,10 +137,10 @@ describe('App', () => {
     expect(alert).toHaveTextContent('Failed to decode UTF-8 file')
   })
 
-  it('应该渲染视图模式切换按钮', () => {
+  it('应该移除顶部视图模式切换按钮', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '预览' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '预览' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '分屏' })).not.toBeInTheDocument()
   })
 
@@ -160,12 +160,17 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
 
     expect(screen.getByTestId('editor-container')).not.toHaveClass('full-width-editor')
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(screen.getByTestId('preview-container')).not.toHaveClass('full-width-preview')
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: /铺满/ }))
     fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
 
     expect(screen.getByTestId('editor-container')).toHaveClass('full-width-editor')
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(screen.getByTestId('preview-container')).toHaveClass('full-width-preview')
   })
 
   it('应该忽略旧版宽度字段并默认使用铺满模式', () => {
@@ -189,21 +194,32 @@ describe('App', () => {
 
   it('应该按分类渲染顶部工具栏', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '文件' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '导出' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '设置' })).toBeInTheDocument()
+    const menuBar = screen.getByLabelText('应用菜单')
+    const fileButton = screen.getByRole('button', { name: '文件' })
+    const exportButton = screen.getByRole('button', { name: '导出' })
+    const settingsButton = screen.getByRole('button', { name: '设置' })
+    const undoButton = screen.getByRole('button', { name: '撤销' })
+
+    expect(Array.from(menuBar.children)).toEqual([
+      fileButton.closest('.toolbar-menu'),
+      exportButton.closest('.toolbar-menu'),
+      settingsButton,
+      undoButton,
+    ])
+    expect(settingsButton).toHaveTextContent('设置')
     expect(screen.queryByRole('button', { name: '关于' })).not.toBeInTheDocument()
     expect(screen.queryByText('视图')).not.toBeInTheDocument()
   })
 
-  it('应该在左上角提供逐步撤销按钮', async () => {
+  it('应该在设置右边提供逐步撤销按钮', async () => {
     const user = userEvent.setup()
     render(<App />)
 
     const undoButton = screen.getByRole('button', { name: '撤销' })
+    const settingsButton = screen.getByRole('button', { name: '设置' })
     const menuBar = screen.getByLabelText('应用菜单')
-    expect(menuBar.firstElementChild).toBe(undoButton)
+    expect(settingsButton.nextElementSibling).toBe(undoButton)
+    expect(undoButton.parentElement).toBe(menuBar)
     expect(undoButton).toBeDisabled()
 
     const editorElement = screen
@@ -430,36 +446,15 @@ describe('App', () => {
 
   it('应该默认为所见即所得编辑模式', () => {
     render(<App />)
-    const editButton = screen.getByRole('button', { name: '编辑' })
-    expect(editButton).toHaveClass('active')
     expect(screen.getByTestId('editor-container')).toHaveClass('wysiwyg-editor')
-  })
-
-  it('应该点击按钮切换到编辑模式', () => {
-    render(<App />)
-    const editButton = screen.getByRole('button', { name: '编辑' })
-    fireEvent.click(editButton)
-
-    expect(editButton).toHaveClass('active')
-    expect(screen.getByTestId('editor-container')).toBeInTheDocument()
     expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
-  })
-
-  it('应该点击按钮切换到预览模式', () => {
-    render(<App />)
-    const previewButton = screen.getByRole('button', { name: '预览' })
-    fireEvent.click(previewButton)
-
-    expect(previewButton).toHaveClass('active')
-    expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
-    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
   })
 
   it('应该只使用单栏并且不渲染分割条', () => {
     render(<App />)
     expect(screen.queryByTestId('resizer')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '预览' }))
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
     expect(screen.queryByTestId('resizer')).not.toBeInTheDocument()
   })
 
@@ -467,14 +462,87 @@ describe('App', () => {
     render(<App />)
 
     // 初始为所见即所得编辑模式
-    expect(screen.getByRole('button', { name: '编辑' })).toHaveClass('active')
+    expect(screen.getByTestId('editor-container')).toBeInTheDocument()
+    expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
 
     // 第一次按 Ctrl+/ 切换到预览模式
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
-    expect(screen.getByRole('button', { name: '预览' })).toHaveClass('active')
+    expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
 
     // 第二次按 Ctrl+/ 回到所见即所得编辑模式
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
-    expect(screen.getByRole('button', { name: '编辑' })).toHaveClass('active')
+    expect(screen.getByTestId('editor-container')).toBeInTheDocument()
+    expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
+  })
+
+  it('切换编辑和预览模式时不应该重写未修改的文件', async () => {
+    vi.mocked(getCurrentFile).mockResolvedValue('C:\\notes\\unchanged.md')
+    vi.mocked(fileRead).mockResolvedValue('# 未修改')
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('未修改')).toBeInTheDocument())
+    vi.mocked(fileWrite).mockClear()
+
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(screen.getByTestId('editor-container')).toBeInTheDocument()
+
+    await new Promise((resolve) => window.setTimeout(resolve, 550))
+    expect(fileWrite).not.toHaveBeenCalled()
+  })
+
+  it('显式保存未修改的文件时也不应该触碰磁盘', async () => {
+    vi.mocked(getCurrentFile).mockResolvedValue('C:\\notes\\unchanged.md')
+    vi.mocked(fileRead).mockResolvedValue('# 未修改')
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('未修改')).toBeInTheDocument())
+    vi.mocked(fileWrite).mockClear()
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(fileWrite).not.toHaveBeenCalled())
+  })
+
+  it('预览模式点击大纲时应该把对应标题精确滚动到顶部', async () => {
+    vi.mocked(getCurrentFile).mockResolvedValue('C:\\notes\\outline.md')
+    vi.mocked(fileRead).mockResolvedValue('# 第一节\n\n正文\n\n## 第二节\n\n更多正文')
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '第二节' })).toBeInTheDocument())
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+
+    const scroller = await screen.findByTestId('preview-container')
+    const heading = scroller.querySelector<HTMLElement>('h2[data-source-line="5"]')
+    expect(heading).not.toBeNull()
+
+    scroller.scrollTop = 120
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({
+      top: 40,
+      bottom: 640,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 600,
+      x: 0,
+      y: 40,
+      toJSON: () => ({}),
+    } as DOMRect)
+    vi.spyOn(heading as HTMLElement, 'getBoundingClientRect').mockReturnValue({
+      top: 310,
+      bottom: 350,
+      left: 0,
+      right: 600,
+      width: 600,
+      height: 40,
+      x: 0,
+      y: 310,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(screen.getByRole('button', { name: '第二节' }))
+
+    expect(scroller.scrollTop).toBe(390)
   })
 })

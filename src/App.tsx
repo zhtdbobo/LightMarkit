@@ -22,7 +22,13 @@ import { scanFolder } from './utils/folderApi'
 import { exportHtml, exportPdf } from './utils/exportApi'
 import { extractMarkdownOutline, type OutlineItem } from './utils/outline'
 import { renderMarkdownToExportHtml } from './utils/markdownRenderer'
-import { resolvePreviewSourceLine } from './utils/scrollSync'
+import {
+  collectPreviewAnchors,
+  editorScrollTopForLine,
+  previewScrollTopForLine,
+  previewScrollTopForSourceLine,
+  resolvePreviewSourceLine,
+} from './utils/scrollSync'
 import appIconUrl from '../src-tauri/icons/icon.png'
 import packageInfo from '../package.json'
 import './App.css'
@@ -111,24 +117,6 @@ function getUpdateErrorMessage(error: unknown): string {
   return `更新失败，未安装任何文件。${message ? ` ${message}` : ''}`
 }
 
-function ViewModeIcon({ mode }: { mode: ViewMode }) {
-  if (mode === 'edit') {
-    return (
-      <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 19h4L19 9l-4-4L5 15v4z" />
-        <path d="M14 6l4 4" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
-      <circle cx="12" cy="12" r="2.5" />
-    </svg>
-  )
-}
-
 function UndoIcon() {
   return (
     <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -213,15 +201,6 @@ function isMacOSPlatform(): boolean {
   return /^Mac/.test(navigator.platform) || /Macintosh|Mac OS X/.test(navigator.userAgent)
 }
 
-function SettingsIcon() {
-  return (
-    <svg className="mode-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19 12a7 7 0 0 0-.08-1l2-1.55-2-3.46-2.45 1A7 7 0 0 0 14.7 6L14.35 3h-4.7L9.3 6a7 7 0 0 0-1.77 1L5.08 6 3.08 9.45l2 1.55a7 7 0 0 0 0 2L3.08 14.55l2 3.46 2.45-1a7 7 0 0 0 1.77 1l.35 3h4.7l.35-3a7 7 0 0 0 1.77-1l2.45 1 2-3.46-2-1.55c.05-.33.08-.66.08-1z" />
-    </svg>
-  )
-}
-
 interface SettingsPageProps {
   fullWidth: boolean
   isMacOS: boolean
@@ -293,14 +272,14 @@ function SettingsPage({
           <section className="settings-detail-section" aria-labelledby="editor-settings-title">
             <header className="settings-content-header">
               <h2 id="editor-settings-title">编辑</h2>
-              <p>设置所见即所得编辑区的内容宽度。</p>
+              <p>设置编辑与预览内容的显示宽度。</p>
             </header>
             <div className="settings-card">
               <div className="settings-card-heading">
                 <h3>内容宽度</h3>
                 <p>选择适合当前写作习惯的页面布局。</p>
               </div>
-              <div className="settings-width-options" role="radiogroup" aria-label="编辑器宽度">
+              <div className="settings-width-options" role="radiogroup" aria-label="内容宽度">
                 <button
                   type="button"
                   className={`settings-width-card ${fullWidth ? 'selected' : ''}`}
@@ -490,6 +469,15 @@ function getEditorViewportLine(view: EditorView): number {
   }
 }
 
+function getEditorViewportTopLine(view: EditorView): number {
+  try {
+    const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 1)
+    return view.state.doc.lineAt(block.from).number
+  } catch {
+    return 1
+  }
+}
+
 function App() {
   const isMacOS = useMemo(() => isMacOSPlatform(), [])
   const [content, setContent] = useState('')
@@ -555,10 +543,26 @@ function App() {
   const availableUpdateRef = useRef<Update | null>(null)
   const isProgrammaticCloseRef = useRef(false)
   const activeOutlineIdRef = useRef<string | null>(null)
+  const pendingViewScrollLineRef = useRef<number | null>(null)
 
   const updateUndoAvailability = useCallback((view: EditorView | null = editorViewRef.current) => {
     setCanUndo(view ? undoDepth(view.state) > 0 : false)
   }, [])
+
+  const handleToggleViewMode = useCallback(() => {
+    const editorView = editorViewRef.current
+    const previewScroller =
+      previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+
+    pendingViewScrollLineRef.current =
+      viewMode === 'edit' && editorView
+        ? getEditorViewportTopLine(editorView)
+        : previewScroller
+          ? resolvePreviewSourceLine(previewScroller, 0)
+          : null
+
+    setViewMode((current) => (current === 'edit' ? 'preview' : 'edit'))
+  }, [viewMode])
 
   useEffect(() => {
     contentRef.current = content
@@ -889,6 +893,12 @@ function App() {
       return handleSaveAsFile()
     }
 
+    // 所有保存入口最终都经过这里。内容未变化时不触碰磁盘，避免只切换视图、
+    // 窗口失焦或关闭窗口就刷新文件时间戳并被 Git/文件监视器误判。
+    if (content === lastSyncedContentRef.current) {
+      return true
+    }
+
     try {
       setSaveStatus('saving')
       await fileWrite(currentFile, content)
@@ -914,7 +924,7 @@ function App() {
       if (!saved) {
         return
       }
-    } else if (currentFile) {
+    } else if (currentFile && content !== lastSyncedContentRef.current) {
       const saved = await handleSaveFile()
       if (!saved) {
         return
@@ -978,14 +988,14 @@ function App() {
   // 窗口失焦/关闭前强制保存
   useEffect(() => {
     const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
-      if (currentFile && saveStatus !== 'saved') {
+      if (currentFile && content !== lastSyncedContentRef.current) {
         e.preventDefault()
         await handleSaveFile()
       }
     }
 
     const handleVisibilityChange = async () => {
-      if (document.hidden && currentFile) {
+      if (document.hidden && currentFile && content !== lastSyncedContentRef.current) {
         await handleSaveFile()
       }
     }
@@ -997,7 +1007,7 @@ function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [currentFile, saveStatus, handleSaveFile])
+  }, [content, currentFile, handleSaveFile])
 
   // 加载当前文件 + 恢复上次文件夹
   useEffect(() => {
@@ -1077,7 +1087,7 @@ function App() {
       // 模式切换快捷键
       if (e.ctrlKey && e.key === '/') {
         e.preventDefault()
-        setViewMode((prev) => (prev === 'edit' ? 'preview' : 'edit'))
+        handleToggleViewMode()
       }
 
       // 打开文件夹快捷键
@@ -1102,7 +1112,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleOpenFile, handleOpenFolder, handleSaveFile])
+  }, [handleOpenFile, handleOpenFolder, handleSaveFile, handleToggleViewMode])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -1144,7 +1154,6 @@ function App() {
 
     editorPanelRef.current = null
     editorViewRef.current = null
-    setCanUndo(false)
   }, [viewMode])
 
   useEffect(() => {
@@ -1153,25 +1162,77 @@ function App() {
     }
 
     editorViewRef.current = null
-    setCanUndo(false)
   }, [isSettingsPageOpen])
 
   const handleOutlineItemClick = useCallback((item: OutlineItem) => {
-    const view = editorViewRef.current
-    if (!view) {
+    activeOutlineIdRef.current = item.id
+    setActiveOutlineId(item.id)
+
+    if (viewMode === 'preview') {
+      const previewScroller =
+        previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+      if (!previewScroller) return
+
+      const nextScrollTop = previewScrollTopForSourceLine(previewScroller, item.line)
+      if (nextScrollTop !== null) {
+        previewScroller.scrollTop = nextScrollTop
+      }
       return
     }
 
+    const view = editorViewRef.current
+    if (!view) return
+
     const lineNumber = Math.min(Math.max(item.line, 1), view.state.doc.lines)
     const lineInfo = view.state.doc.line(lineNumber)
-    activeOutlineIdRef.current = item.id
-    setActiveOutlineId(item.id)
+    view.dispatch({ selection: { anchor: lineInfo.from, head: lineInfo.from } })
     view.focus()
-    view.dispatch({
-      selection: { anchor: lineInfo.from, head: lineInfo.from },
-      effects: EditorView.scrollIntoView(lineInfo.from, { y: 'start', yMargin: 24 }),
+    view.requestMeasure({
+      read: () => editorScrollTopForLine(view.scrollDOM, view, lineNumber),
+      write: (scrollTop) => {
+        view.scrollDOM.scrollTop = scrollTop
+      },
     })
-  }, [])
+  }, [viewMode])
+
+  useEffect(() => {
+    const line = pendingViewScrollLineRef.current
+    if (line === null) return
+
+    const frame = window.requestAnimationFrame(() => {
+      if (viewMode === 'preview') {
+        const previewScroller =
+          previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+        if (!previewScroller) return
+
+        const exactScrollTop = previewScrollTopForSourceLine(previewScroller, line)
+        const anchors = exactScrollTop === null ? collectPreviewAnchors(previewScroller) : []
+        const nextScrollTop =
+          exactScrollTop ??
+          (anchors.length > 0
+            ? previewScrollTopForLine(anchors, line, previewScroller)
+            : null)
+        if (nextScrollTop !== null) {
+          previewScroller.scrollTop = nextScrollTop
+          pendingViewScrollLineRef.current = null
+        }
+        return
+      }
+
+      const view = editorViewRef.current
+      if (!view) return
+
+      view.requestMeasure({
+        read: () => editorScrollTopForLine(view.scrollDOM, view, line),
+        write: (scrollTop) => {
+          view.scrollDOM.scrollTop = scrollTop
+          pendingViewScrollLineRef.current = null
+        },
+      })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [viewMode])
 
   useEffect(() => {
     if (!currentFile) {
@@ -1375,16 +1436,6 @@ function App() {
           />
         )}
         <nav className="app-menu-bar" aria-label="应用菜单">
-          <button
-            type="button"
-            className="undo-button"
-            onClick={handleUndo}
-            disabled={isUndoDisabled}
-            title="撤销上一步 (Ctrl+Z)"
-            aria-label="撤销"
-          >
-            <UndoIcon />
-          </button>
           <div className={`toolbar-menu ${openMenu === 'file' ? 'open' : ''}`}>
             <button
               type="button"
@@ -1451,47 +1502,34 @@ function App() {
             </div>
           </div>
 
+          <button
+            type="button"
+            className={`menu-trigger settings-trigger ${isSettingsPageOpen ? 'active' : ''}`}
+            onClick={() => {
+              setOpenMenu(null)
+              setIsSettingsPageOpen((isOpen) => !isOpen)
+            }}
+            title="设置"
+            aria-label="设置"
+            aria-pressed={isSettingsPageOpen}
+          >
+            设置
+          </button>
+
+          <button
+            type="button"
+            className="undo-button"
+            onClick={handleUndo}
+            disabled={isUndoDisabled}
+            title="撤销上一步 (Ctrl+Z)"
+            aria-label="撤销"
+          >
+            <UndoIcon />
+          </button>
         </nav>
 
         <div className="header-actions" aria-label="文档工具栏">
           {saveStatus === 'saved' && <span className="save-status">✓ 已自动保存</span>}
-          {!isSettingsPageOpen && (
-            <div className="view-mode-switcher" aria-label="视图模式">
-              <button
-                type="button"
-                className={`mode-button ${viewMode === 'edit' ? 'active' : ''}`}
-                onClick={() => setViewMode('edit')}
-                title="所见即所得模式 (Ctrl+/)"
-                aria-label="编辑"
-              >
-                <ViewModeIcon mode="edit" />
-              </button>
-              <button
-                type="button"
-                className={`mode-button ${viewMode === 'preview' ? 'active' : ''}`}
-                onClick={() => setViewMode('preview')}
-                title="纯预览模式 (Ctrl+/)"
-                aria-label="预览"
-              >
-                <ViewModeIcon mode="preview" />
-              </button>
-            </div>
-          )}
-          <div className="settings-menu">
-            <button
-              type="button"
-              className={`mode-button settings-trigger ${isSettingsPageOpen ? 'active' : ''}`}
-              onClick={() => {
-                setOpenMenu(null)
-                setIsSettingsPageOpen((isOpen) => !isOpen)
-              }}
-              title="设置"
-              aria-label="设置"
-              aria-pressed={isSettingsPageOpen}
-            >
-              <SettingsIcon />
-            </button>
-          </div>
           {!isMacOS && (
             <WindowControls
               isMacOS={false}
@@ -1576,7 +1614,11 @@ function App() {
               )}
               {viewMode === 'preview' && (
                 <div ref={previewPanelRef} className="preview-panel">
-                  <Preview content={content} currentFile={currentFile} />
+                  <Preview
+                    content={content}
+                    currentFile={currentFile}
+                    className={isEditorFullWidth ? 'full-width-preview' : ''}
+                  />
                 </div>
               )}
             </div>

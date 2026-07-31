@@ -1,14 +1,10 @@
-import {
-  StateEffect,
-  StateField,
-  type EditorState,
-  type Range,
-} from '@codemirror/state'
+import { Prec, StateEffect, StateField, type EditorState, type Range } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -19,7 +15,8 @@ import { resolveLocalImagePath } from '../../utils/markdownRenderer'
 import { findMarkdownTables, tablePreviewExtension } from './tablePreview'
 
 const HEADING_NODE_PATTERN = /^(?:ATX|Setext)Heading([1-6])$/
-const TASK_MARKER_PATTERN = /^(\s*(?:(?:[-+*])|(?:\d+[.)]))\s+)(\[([ xX])\])(?=\s)/
+// 分组：1=引用/缩进前缀，2=列表标记，3=复选框，4=勾选状态
+const TASK_MARKER_PATTERN = /^((?:\s*>)*\s*)((?:[-+*]|\d+[.)])\s+)(\[([ xX])\])(?=\s)/
 
 interface LivePreviewOptions {
   currentFile?: string | null
@@ -102,7 +99,10 @@ function rangeIsActive(view: EditorView, from: number, to: number): boolean {
   })
 }
 
-function parentSource(view: EditorView, node: { from: number; to: number; node: { parent: unknown } }) {
+function parentSource(
+  view: EditorView,
+  node: { from: number; to: number; node: { parent: unknown } }
+) {
   const parent = node.node.parent
 
   if (!parent || typeof parent !== 'object' || !('from' in parent) || !('to' in parent)) {
@@ -223,6 +223,182 @@ class ImagePreviewWidget extends WidgetType {
       view.dispatch({ selection: { anchor: this.from } })
       view.focus()
     })
+    return wrapper
+  }
+}
+
+const CODE_LANGUAGE_SUGGESTIONS = [
+  'text',
+  'javascript',
+  'typescript',
+  'jsx',
+  'tsx',
+  'html',
+  'css',
+  'json',
+  'markdown',
+  'python',
+  'java',
+  'c',
+  'cpp',
+  'csharp',
+  'go',
+  'rust',
+  'php',
+  'ruby',
+  'swift',
+  'kotlin',
+  'sql',
+  'bash',
+  'powershell',
+  'yaml',
+] as const
+
+function codeFenceInfoRange(view: EditorView, blockFrom: number) {
+  const openingLine = view.state.doc.lineAt(blockFrom)
+  const openingMatch = openingLine.text.match(/^(\s*)(`{3,}|~{3,})(.*)$/)
+  if (!openingMatch) return null
+
+  const from = openingLine.from + openingMatch[1].length + openingMatch[2].length
+  return { from, to: openingLine.to }
+}
+
+function focusCodeBlockBody(view: EditorView, blockFrom: number) {
+  const openingLine = view.state.doc.lineAt(blockFrom)
+
+  if (openingLine.number === view.state.doc.lines) {
+    view.dispatch({
+      changes: { from: openingLine.to, insert: '\n' },
+      selection: { anchor: openingLine.to + 1 },
+    })
+    view.focus()
+    return
+  }
+
+  const nextLine = view.state.doc.line(openingLine.number + 1)
+  if (/^\s*(?:`{3,}|~{3,})\s*$/.test(nextLine.text)) {
+    view.dispatch({
+      changes: { from: nextLine.from, insert: '\n' },
+      selection: { anchor: nextLine.from },
+    })
+  } else {
+    view.dispatch({ selection: { anchor: nextLine.from } })
+  }
+  view.focus()
+}
+
+function expandCollapsedCodeBlockOnEnter(view: EditorView): boolean {
+  const selection = view.state.selection.main
+  if (!selection.empty) return false
+
+  const collapsedPositions = view.state.field(collapsedCodeBlocksField).positions
+  for (const blockFrom of collapsedPositions) {
+    const openingLine = view.state.doc.lineAt(blockFrom)
+
+    // 检查光标是否在折叠代码块的首行或紧随其后的摘要行
+    // 摘要 widget 渲染在 openingLine.to 之后，所以需要检查下一行的起始位置
+    const nextLineStart = openingLine.number < view.state.doc.lines
+      ? view.state.doc.line(openingLine.number + 1).from
+      : view.state.doc.length
+
+    if (selection.head >= openingLine.from && selection.head < nextLineStart) {
+      view.dispatch({ effects: toggleCodeBlockEffect.of(blockFrom) })
+      focusCodeBlockBody(view, blockFrom)
+      return true
+    }
+  }
+
+  return false
+}
+
+class CodeLanguageWidget extends WidgetType {
+  constructor(
+    private readonly language: string,
+    private readonly blockFrom: number,
+    private readonly collapsed: boolean
+  ) {
+    super()
+  }
+
+  eq(other: CodeLanguageWidget): boolean {
+    return (
+      other.language === this.language &&
+      other.blockFrom === this.blockFrom &&
+      other.collapsed === this.collapsed
+    )
+  }
+
+  updateDOM(dom: HTMLElement): boolean {
+    if (
+      dom.dataset.blockFrom !== String(this.blockFrom) ||
+      dom.dataset.collapsed !== String(this.collapsed)
+    ) {
+      return false
+    }
+
+    const input = dom.querySelector<HTMLInputElement>('.cm-code-language-input')
+    if (!input) return false
+    if (document.activeElement !== input) {
+      input.value = this.language
+    }
+    input.style.setProperty('--language-length', String(Math.max(this.language.length, 4)))
+    return true
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const wrapper = document.createElement('span')
+    const input = document.createElement('input')
+    const suggestions = document.createElement('datalist')
+    const suggestionsId = `cm-code-languages-${this.blockFrom}`
+
+    wrapper.className = 'cm-code-language-field'
+    wrapper.dataset.blockFrom = String(this.blockFrom)
+    wrapper.dataset.collapsed = String(this.collapsed)
+    input.type = 'text'
+    input.className = 'cm-code-language-input'
+    input.value = this.language
+    input.placeholder = '语言'
+    input.autocomplete = 'off'
+    input.spellcheck = false
+    input.setAttribute('aria-label', '代码语言')
+    input.setAttribute('list', suggestionsId)
+    input.style.setProperty('--language-length', String(Math.max(this.language.length, 4)))
+    suggestions.id = suggestionsId
+
+    for (const language of CODE_LANGUAGE_SUGGESTIONS) {
+      const option = document.createElement('option')
+      option.value = language
+      suggestions.append(option)
+    }
+
+    const commitLanguage = () => {
+      const range = codeFenceInfoRange(view, this.blockFrom)
+      if (!range || view.state.sliceDoc(range.from, range.to) === input.value) return
+      view.dispatch({ changes: { ...range, insert: input.value } })
+    }
+
+    input.addEventListener('input', () => {
+      const nextLanguage = input.value.replace(/\s+/g, '')
+      if (nextLanguage !== input.value) {
+        input.value = nextLanguage
+      }
+      input.style.setProperty('--language-length', String(Math.max(nextLanguage.length, 4)))
+    })
+    input.addEventListener('change', commitLanguage)
+    input.addEventListener('blur', commitLanguage)
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      event.stopPropagation()
+      commitLanguage()
+      if (this.collapsed) {
+        view.dispatch({ effects: toggleCodeBlockEffect.of(this.blockFrom) })
+      }
+      focusCodeBlockBody(view, this.blockFrom)
+    })
+
+    wrapper.append(input, suggestions)
     return wrapper
   }
 }
@@ -370,6 +546,7 @@ function decorateFencedCode(
     : null
   const hasClosingFence =
     closingLine.number > openingLine.number && closingPattern?.test(closingLine.text) === true
+  const collapsed = collapsedCodeBlocks.has(openingLine.from)
 
   addLineClass(ranges, seenLines, view, openingLine.from, 'cm-wysiwyg-code-start')
 
@@ -380,22 +557,10 @@ function decorateFencedCode(
 
     const info = openingMatch[3]
     const trimmedInfo = info.trim()
-    if (trimmedInfo) {
-      const infoOffset = info.indexOf(trimmedInfo)
-      const infoFrom = fenceTo + infoOffset
-      ranges.push(
-        Decoration.mark({ class: 'cm-wysiwyg-code-language' }).range(
-          infoFrom,
-          infoFrom + trimmedInfo.length
-        )
-      )
-      addLineClass(
-        ranges,
-        seenLines,
-        view,
-        openingLine.from,
-        'cm-wysiwyg-code-start-has-language'
-      )
+    const languageWidget = new CodeLanguageWidget(trimmedInfo, openingLine.from, collapsed)
+    ranges.push(Decoration.widget({ widget: languageWidget, side: 1 }).range(fenceTo))
+    if (info.length > 0) {
+      ranges.push(Decoration.replace({}).range(fenceTo, openingLine.to))
     }
   }
 
@@ -404,7 +569,6 @@ function decorateFencedCode(
   const code = view.state.sliceDoc(contentFrom, contentTo).replace(/\n$/, '')
   const codeLines = code ? code.split('\n') : []
   const firstCodeLine = codeLines.find((line) => line.trim())?.trim() ?? '空代码块'
-  const collapsed = collapsedCodeBlocks.has(openingLine.from)
   const lastCodeLineNumber = hasClosingFence ? closingLine.number - 1 : closingLine.number
 
   if (collapsed) {
@@ -415,7 +579,8 @@ function decorateFencedCode(
         side: -2,
       }).range(openingLine.to)
     )
-  } else if (openingLine.number < lastCodeLineNumber + 1) {
+  } else if (openingLine.number <= lastCodeLineNumber) {
+    // 每一行代码都需要相同的块级背景和左右边界。只装饰首行会让多行代码块断裂。
     for (
       let lineNumber = openingLine.number + 1;
       lineNumber <= lastCodeLineNumber;
@@ -431,6 +596,23 @@ function decorateFencedCode(
     if (closingLine.length > 0) {
       ranges.push(Decoration.replace({}).range(closingLine.from, closingLine.to))
     }
+  } else if (!collapsed && lastCodeLineNumber > openingLine.number) {
+    addLineClass(
+      ranges,
+      seenLines,
+      view,
+      view.state.doc.line(lastCodeLineNumber).from,
+      'cm-wysiwyg-code-last-line'
+    )
+  } else if (!collapsed && lastCodeLineNumber === openingLine.number && !hasClosingFence) {
+    // 空代码块没有结束标记时，给开头行添加底部边框
+    addLineClass(
+      ranges,
+      seenLines,
+      view,
+      openingLine.from,
+      'cm-wysiwyg-code-last-line'
+    )
   }
 
   if (contentTo >= contentFrom) {
@@ -443,14 +625,22 @@ function decorateFencedCode(
   }
 }
 
-function buildLivePreviewDecorations(
-  view: EditorView,
-  options: LivePreviewOptions
-): DecorationSet {
+interface DocumentRange {
+  from: number
+  to: number
+}
+
+function overlapsAnyRange(ranges: readonly DocumentRange[], from: number, to: number): boolean {
+  return ranges.some((range) => from < range.to && to > range.from)
+}
+
+function buildLivePreviewDecorations(view: EditorView, options: LivePreviewOptions): DecorationSet {
   const ranges: Range<Decoration>[] = []
   const seenLines = new Set<string>()
   const tables = findMarkdownTables(view.state.doc)
   const collapsedCodeBlocks = view.state.field(collapsedCodeBlocksField).positions
+  // 代码块与表格内的文本不参与任务列表识别，否则会误渲染出可点击的复选框
+  const codeRanges: DocumentRange[] = []
 
   syntaxTree(view.state).iterate({
     enter(node) {
@@ -481,23 +671,13 @@ function buildLivePreviewDecorations(
           Decoration.mark({ class: 'cm-wysiwyg-strikethrough' }).range(node.from, node.to)
         )
       } else if (node.name === 'Blockquote') {
-        addClassToLines(
-          ranges,
-          seenLines,
-          view,
-          node.from,
-          node.to,
-          'cm-wysiwyg-blockquote'
-        )
+        addClassToLines(ranges, seenLines, view, node.from, node.to, 'cm-wysiwyg-blockquote')
       } else if (node.name === 'FencedCode') {
-        decorateFencedCode(
-          ranges,
-          seenLines,
-          view,
-          node.from,
-          node.to,
-          collapsedCodeBlocks
-        )
+        codeRanges.push({ from: node.from, to: node.to })
+        decorateFencedCode(ranges, seenLines, view, node.from, node.to, collapsedCodeBlocks)
+        return false
+      } else if (node.name === 'CodeBlock') {
+        codeRanges.push({ from: node.from, to: node.to })
         return false
       } else if (node.name === 'HorizontalRule') {
         ranges.push(
@@ -551,21 +731,27 @@ function buildLivePreviewDecorations(
     },
   })
 
+  const taskExclusions: DocumentRange[] = [...codeRanges, ...tables]
+
   for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
     const line = view.state.doc.line(lineNumber)
+
+    if (overlapsAnyRange(taskExclusions, line.from, line.to)) {
+      continue
+    }
+
     const taskMatch = line.text.match(TASK_MARKER_PATTERN)
 
     if (!taskMatch) {
       continue
     }
 
-    const markerFrom = line.from + taskMatch[1].length
-    const leadingWhitespaceLength = taskMatch[1].match(/^\s*/)?.[0].length ?? 0
-    const listMarkerFrom = line.from + leadingWhitespaceLength
+    const listMarkerFrom = line.from + taskMatch[1].length
+    const markerFrom = listMarkerFrom + taskMatch[2].length
     ranges.push(
       Decoration.replace({
-        widget: new TaskCheckboxWidget(taskMatch[3].toLowerCase() === 'x', markerFrom),
-      }).range(listMarkerFrom, markerFrom + taskMatch[2].length)
+        widget: new TaskCheckboxWidget(taskMatch[4].toLowerCase() === 'x', markerFrom),
+      }).range(listMarkerFrom, markerFrom + taskMatch[3].length)
     )
     addLineClass(ranges, seenLines, view, line.from, 'cm-wysiwyg-task-line')
   }
@@ -600,9 +786,51 @@ const livePreviewPlugin = ViewPlugin.fromClass<LivePreviewPlugin, LivePreviewOpt
   LivePreviewPlugin,
   {
     decorations: (plugin) => plugin.decorations,
+    eventHandlers: {
+      dblclick: (event, view) => {
+        const target = event.target as HTMLElement
+        const codeLine = target.closest('.cm-line')
+        if (!codeLine) return false
+
+        const pos = view.posAtDOM(codeLine)
+        if (pos === null) return false
+
+        const collapsedPositions = view.state.field(collapsedCodeBlocksField).positions
+
+        // 检查是否双击了代码块的首行
+        for (const blockFrom of collapsedPositions) {
+          const openingLine = view.state.doc.lineAt(blockFrom)
+          if (pos >= openingLine.from && pos <= openingLine.to) {
+            view.dispatch({ effects: toggleCodeBlockEffect.of(blockFrom) })
+            return true
+          }
+        }
+
+        // 检查是否双击了展开的代码块首行
+        const clickedLine = view.state.doc.lineAt(pos)
+        if (codeLine.classList.contains('cm-wysiwyg-code-start')) {
+          view.dispatch({ effects: toggleCodeBlockEffect.of(clickedLine.from) })
+          return true
+        }
+
+        return false
+      },
+    },
   }
 )
 
 export function createLivePreview(options: LivePreviewOptions = {}) {
-  return [collapsedCodeBlocksField, livePreviewPlugin.of(options), tablePreviewExtension]
+  return [
+    collapsedCodeBlocksField,
+    Prec.highest(
+      keymap.of([
+        {
+          key: 'Enter',
+          run: expandCollapsedCodeBlockOnEnter,
+        },
+      ])
+    ),
+    livePreviewPlugin.of(options),
+    tablePreviewExtension,
+  ]
 }

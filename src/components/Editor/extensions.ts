@@ -8,6 +8,24 @@ import { EditorView } from 'codemirror'
 import { slashCommandSource } from './slashCommands'
 
 const headingHighlightStyle = HighlightStyle.define([{ tag: tags.heading, class: 'cm-heading' }])
+const codeHighlightStyle = HighlightStyle.define([
+  {
+    tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.modifier],
+    class: 'cm-code-token-keyword',
+  },
+  { tag: [tags.string, tags.regexp], class: 'cm-code-token-string' },
+  { tag: [tags.number, tags.bool, tags.null], class: 'cm-code-token-literal' },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], class: 'cm-code-token-comment' },
+  { tag: [tags.typeName, tags.className], class: 'cm-code-token-type' },
+  {
+    tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
+    class: 'cm-code-token-function',
+  },
+  {
+    tag: [tags.operator, tags.compareOperator, tags.logicOperator],
+    class: 'cm-code-token-operator',
+  },
+])
 
 /**
  * 包裹选中文字的辅助函数
@@ -127,6 +145,7 @@ export function createEditingExtensions(): Extension[] {
     // Keep CodeMirror's default token colors while exposing headings to the editor theme.
     syntaxHighlighting(defaultHighlightStyle),
     syntaxHighlighting(headingHighlightStyle),
+    syntaxHighlighting(codeHighlightStyle),
 
     // 自定义按键绑定
     keymap.of([

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { EditorView } from '@codemirror/view'
 import Editor from './Editor'
 
 describe('Editor', () => {
@@ -94,7 +95,96 @@ describe('Editor', () => {
       const container = screen.getByTestId('editor-container')
 
       expect(container.textContent).toContain('code')
+      expect(screen.getByRole('combobox', { name: '代码语言' })).toHaveValue('js')
       expect(screen.getByRole('button', { name: '复制代码' })).toBeInTheDocument()
+    })
+
+    it('应该根据代码块语言高亮 Java 语法', async () => {
+      render(<Editor initialValue={'```java\npublic class Demo { private int value = 1; }\n```'} />)
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('editor-container').querySelector('.cm-code-token-keyword')
+        ).toHaveTextContent('public')
+      })
+      expect(
+        screen.getByTestId('editor-container').querySelector('.cm-code-token-type')
+      ).toHaveTextContent('int')
+    })
+
+    it('应该能编辑代码块语言并在按回车后展开代码区', async () => {
+      const user = userEvent.setup()
+      const handleChange = vi.fn()
+      render(<Editor initialValue={'```\n```'} onChange={handleChange} />)
+
+      const languageInput = screen.getByRole('combobox', { name: '代码语言' })
+      await user.type(languageInput, 'typescript')
+
+      expect(languageInput).toHaveValue('typescript')
+
+      await user.type(languageInput, '{Enter}')
+
+      expect(handleChange).toHaveBeenLastCalledWith('```typescript\n\n```')
+      expect(
+        screen.getByTestId('editor-container').querySelectorAll('.cm-wysiwyg-code-line')
+      ).toHaveLength(1)
+    })
+
+    it('应该在代码正文按回车时继续扩展代码块', () => {
+      let editorView: EditorView | null = null
+      render(
+        <Editor
+          initialValue={'```\nconst answer = 42\n```'}
+          onReady={(view) => {
+            editorView = view
+          }}
+        />
+      )
+
+      expect(editorView).not.toBeNull()
+      const view = editorView as EditorView
+      const bodyLine = view.state.doc.line(2)
+      view.dispatch({ selection: { anchor: bodyLine.to } })
+      view.focus()
+      fireEvent.keyDown(view.contentDOM, { key: 'Enter', code: 'Enter' })
+
+      expect(view.state.doc.toString()).toBe('```\nconst answer = 42\n\n```')
+      expect(
+        screen.getByTestId('editor-container').querySelectorAll('.cm-wysiwyg-code-line')
+      ).toHaveLength(2)
+    })
+
+    it('应该在折叠代码块上按回车时自动展开', async () => {
+      const user = userEvent.setup()
+      let editorView: EditorView | null = null
+      render(
+        <Editor
+          initialValue={'```java\nimport java.io;\nclass Demo {}\n```'}
+          onReady={(view) => {
+            editorView = view
+          }}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: '折叠代码块' }))
+      expect(screen.getByRole('button', { name: '展开代码块' })).toBeInTheDocument()
+
+      const view = editorView as unknown as EditorView
+      view.dispatch({ selection: { anchor: view.state.doc.line(1).to } })
+      view.focus()
+      fireEvent.keyDown(view.contentDOM, { key: 'Enter', code: 'Enter' })
+
+      expect(screen.getByRole('button', { name: '折叠代码块' })).toBeInTheDocument()
+      expect(screen.getByTestId('editor-container')).toHaveTextContent('class Demo {}')
+      expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from)
+    })
+
+    it('应该给未闭合代码块补上稳定的底边框', () => {
+      render(<Editor initialValue={'```js\nconst answer = 42'} />)
+
+      expect(
+        screen.getByTestId('editor-container').querySelector('.cm-wysiwyg-code-last-line')
+      ).toBeInTheDocument()
     })
 
     it('应该复制所见即所得代码块内容', async () => {
@@ -154,9 +244,7 @@ describe('Editor', () => {
     })
 
     it('应该在编辑区内直接显示 Markdown 图片', () => {
-      render(
-        <Editor initialValue={'正文\n\n![示例图片](https://example.com/example.png)'} />
-      )
+      render(<Editor initialValue={'正文\n\n![示例图片](https://example.com/example.png)'} />)
 
       expect(screen.getByRole('img', { name: '示例图片' })).toHaveAttribute(
         'src',
@@ -174,68 +262,56 @@ describe('Editor', () => {
       expect(container.textContent).not.toContain('- ')
     })
 
-    it('应该只在悬停表格边框时显示临时行列操作', () => {
+    it('应该根据当前单元格显示浮动表格菜单并在离开后隐藏', async () => {
       render(<Editor initialValue={'| 名称 | 数量 |\n| --- | ---: |\n| 苹果 | 2 |'} />)
 
       const editor = screen.getByTestId('editor-container')
+      const toolbar = editor.querySelector('.cm-markdown-table-toolbar') as HTMLElement
       const tableRoot = editor.querySelector('.cm-markdown-table') as HTMLElement
-      const contextActions = editor.querySelector(
-        '.cm-markdown-table-context-actions'
-      ) as HTMLElement
+      const dataCell = screen
+        .getByRole('textbox', { name: '第 2 行第 1 列' })
+        .closest('td') as HTMLTableCellElement
+      expect(toolbar).not.toBeVisible()
 
-      expect(contextActions).not.toBeVisible()
-      expect(screen.queryByRole('button', { name: '左侧添加一列' })).not.toBeInTheDocument()
-
-      const leftEdge = editor.querySelector(
-        '.cm-markdown-table-edge-left[data-row-index="1"][data-column-index="0"]'
-      ) as HTMLElement
       vi.spyOn(tableRoot, 'getBoundingClientRect').mockReturnValue({
         left: 10,
         top: 20,
         width: 600,
         height: 160,
       } as DOMRect)
-      vi.spyOn(leftEdge, 'getBoundingClientRect').mockReturnValue({
-        left: 10,
-        top: 72,
-        width: 5,
+      vi.spyOn(dataCell, 'getBoundingClientRect').mockReturnValue({
+        left: 310,
+        top: 92,
+        width: 120,
         height: 36,
       } as DOMRect)
-      vi.spyOn(contextActions, 'getBoundingClientRect').mockReturnValue({
-        left: 0,
-        top: 0,
-        width: 96,
-        height: 34,
+      vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue({
+        width: 90,
+        height: 36,
       } as DOMRect)
-      fireEvent.mouseEnter(leftEdge)
+      fireEvent.focus(dataCell.querySelector('input') as HTMLInputElement)
 
-      expect(contextActions).toBeVisible()
-      expect(contextActions).toHaveClass('is-column', 'is-edge-top')
-      expect(contextActions.style.left).toBe('54px')
-      expect(contextActions.style.top).toBe('0px')
-      expect(screen.getByRole('button', { name: '左侧添加一列' })).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: '右侧添加一列' })).not.toBeInTheDocument()
-
-      fireEvent.mouseEnter(
-        editor.querySelector(
-          '.cm-markdown-table-edge-right[data-row-index="1"][data-column-index="0"]'
-        ) as HTMLElement
+      expect(screen.getByRole('toolbar', { name: '第 1 行第 1 列操作' })).toBeVisible()
+      expect(toolbar.style.left).toBe('360px')
+      expect(toolbar.style.top).toBe('72px')
+      expect(screen.getByRole('button', { name: '行操作' })).toHaveAttribute(
+        'aria-expanded',
+        'false'
       )
+      expect(screen.getByRole('button', { name: '列操作' })).toBeVisible()
+      fireEvent.click(screen.getByRole('button', { name: '行操作' }))
+      expect(screen.getByRole('menuitem', { name: '在当前行上方插入一行' })).toBeEnabled()
+      expect(screen.getByRole('menuitem', { name: '删除当前行' })).toBeEnabled()
 
-      expect(screen.getByRole('button', { name: '左侧添加一列' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '右侧添加一列' })).toBeInTheDocument()
+      const headerCell = screen.getByRole('textbox', { name: '第 1 行第 2 列' })
+      fireEvent.focus(headerCell)
+      expect(screen.getByRole('toolbar', { name: '表头第 2 列操作' })).toBeVisible()
+      fireEvent.click(screen.getByRole('button', { name: '行操作' }))
+      expect(screen.getByRole('menuitem', { name: '在当前行上方插入一行' })).toBeDisabled()
+      expect(screen.getByRole('menuitem', { name: '删除当前行' })).toBeDisabled()
 
-      fireEvent.mouseEnter(
-        editor.querySelector(
-          '.cm-markdown-table-edge-right[data-row-index="1"][data-column-index="1"]'
-        ) as HTMLElement
-      )
-
-      expect(screen.queryByRole('button', { name: '左侧添加一列' })).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '右侧添加一列' })).toBeInTheDocument()
-
-      fireEvent.mouseLeave(tableRoot)
-      expect(contextActions).not.toBeVisible()
+      fireEvent.blur(headerCell)
+      await waitFor(() => expect(toolbar).not.toBeVisible())
     })
 
     it('应该在当前单元格的上方或下方插入行', async () => {
@@ -243,22 +319,14 @@ describe('Editor', () => {
       const user = userEvent.setup()
       render(
         <Editor
-          initialValue={
-            '| 名称 | 数量 |\n| --- | ---: |\n| 苹果 | 2 |\n| 香蕉 | 3 |'
-          }
+          initialValue={'| 名称 | 数量 |\n| --- | ---: |\n| 苹果 | 2 |\n| 香蕉 | 3 |'}
           onChange={handleChange}
         />
       )
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-bottom[data-row-index="1"][data-column-index="0"]'
-          ) as HTMLElement
-      )
-      expect(screen.getByRole('button', { name: '上方添加一行' })).toBeInTheDocument()
-      await user.click(screen.getByRole('button', { name: '下方添加一行' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 2 行第 1 列' }))
+      await user.click(screen.getByRole('button', { name: '行操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '在当前行下方插入一行' }))
 
       expect(handleChange.mock.calls.at(-1)?.[0].split('\n')).toEqual([
         '| 名称 | 数量 |',
@@ -269,15 +337,9 @@ describe('Editor', () => {
       ])
       expect(screen.getByRole('textbox', { name: '第 3 行第 1 列' })).toHaveFocus()
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-top[data-row-index="3"][data-column-index="0"]'
-          ) as HTMLElement
-      )
-      expect(screen.getByRole('button', { name: '下方添加一行' })).toBeInTheDocument()
-      await user.click(screen.getByRole('button', { name: '上方添加一行' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 4 行第 1 列' }))
+      await user.click(screen.getByRole('button', { name: '行操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '在当前行上方插入一行' }))
 
       expect(handleChange.mock.calls.at(-1)?.[0].split('\n')).toEqual([
         '| 名称 | 数量 |',
@@ -299,29 +361,17 @@ describe('Editor', () => {
         />
       )
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-left[data-row-index="1"][data-column-index="1"]'
-          ) as HTMLElement
-      )
-      await user.click(screen.getByRole('button', { name: '左侧添加一列' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 2 行第 2 列' }))
+      await user.click(screen.getByRole('button', { name: '列操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '在当前列左侧插入一列' }))
 
       expect(handleChange.mock.calls.at(-1)?.[0]).toContain('| 名称 | 新列 | 数量 |')
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-right[data-row-index="1"][data-column-index="2"]'
-          ) as HTMLElement
-      )
-      await user.click(screen.getByRole('button', { name: '右侧添加一列' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 2 行第 3 列' }))
+      await user.click(screen.getByRole('button', { name: '列操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '在当前列右侧插入一列' }))
 
-      expect(handleChange.mock.calls.at(-1)?.[0]).toContain(
-        '| 名称 | 新列 | 数量 | 新列 |'
-      )
+      expect(handleChange.mock.calls.at(-1)?.[0]).toContain('| 名称 | 新列 | 数量 | 新列 |')
     })
 
     it('应该删除当前数据行或当前列', async () => {
@@ -329,34 +379,22 @@ describe('Editor', () => {
       const user = userEvent.setup()
       render(
         <Editor
-          initialValue={
-            '| 名称 | 数量 |\n| --- | ---: |\n| 苹果 | 2 |\n| 香蕉 | 3 |'
-          }
+          initialValue={'| 名称 | 数量 |\n| --- | ---: |\n| 苹果 | 2 |\n| 香蕉 | 3 |'}
           onChange={handleChange}
         />
       )
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-bottom[data-row-index="1"][data-column-index="1"]'
-          ) as HTMLElement
-      )
-      await user.click(screen.getByRole('button', { name: '删除本行' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 2 行第 2 列' }))
+      await user.click(screen.getByRole('button', { name: '行操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '删除当前行' }))
 
       expect(handleChange.mock.calls.at(-1)?.[0]).not.toContain('苹果')
       expect(handleChange.mock.calls.at(-1)?.[0]).toContain('| 香蕉 | 3 |')
       expect(screen.getByRole('textbox', { name: '第 2 行第 2 列' })).toHaveFocus()
 
-      fireEvent.mouseEnter(
-        screen
-          .getByTestId('editor-container')
-          .querySelector(
-            '.cm-markdown-table-edge-right[data-row-index="1"][data-column-index="1"]'
-          ) as HTMLElement
-      )
-      await user.click(screen.getByRole('button', { name: '删除本列' }))
+      fireEvent.focus(screen.getByRole('textbox', { name: '第 2 行第 2 列' }))
+      await user.click(screen.getByRole('button', { name: '列操作' }))
+      await user.click(screen.getByRole('menuitem', { name: '删除当前列' }))
 
       expect(handleChange.mock.calls.at(-1)?.[0].split('\n')).toEqual([
         '| 名称 |',
