@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose, Engine as _};
 use encoding_rs::{Encoding, BIG5, GBK, SHIFT_JIS, UTF_16BE, UTF_16LE, WINDOWS_1252};
 use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
-use serde::{Deserialize, Serialize};
 use notify::{recommended_watcher, EventKind, RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, process};
 use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    tray::TrayIconBuilder,
     Emitter, Manager, State,
 };
 
@@ -53,6 +53,63 @@ struct FileInfo {
 
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_SCAN_DEPTH: usize = 20;
+const SYSTEM_MENU_ACTION_EVENT: &str = "system-menu-action";
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn dispatch_system_menu_action(app: &tauri::AppHandle, action: &str) {
+    show_main_window(app);
+    let _ = app.emit_to("main", SYSTEM_MENU_ACTION_EVENT, action);
+}
+
+fn handle_system_menu_event(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "show" => show_main_window(app),
+        "hide" => {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+        }
+        "quit" => {
+            show_main_window(app);
+            if let Some(window) = app.get_webview_window("main") {
+                // 交给前端的 close-requested 处理器保存未落盘的内容后再销毁窗口。
+                let _ = window.close();
+            } else {
+                app.exit(0);
+            }
+        }
+        "open-file" | "open-folder" | "save-file" | "export-html" | "export-pdf"
+        | "toggle-view" | "settings" => dispatch_system_menu_action(app, id),
+        "tray-open-file" => dispatch_system_menu_action(app, "open-file"),
+        "tray-open-folder" => dispatch_system_menu_action(app, "open-folder"),
+        "tray-save-file" => dispatch_system_menu_action(app, "save-file"),
+        "tray-export-html" => dispatch_system_menu_action(app, "export-html"),
+        "tray-export-pdf" => dispatch_system_menu_action(app, "export-pdf"),
+        "tray-settings" => dispatch_system_menu_action(app, "settings"),
+        "tray-show" => show_main_window(app),
+        "tray-hide" => {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+        }
+        "tray-quit" => {
+            show_main_window(app);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.close();
+            } else {
+                app.exit(0);
+            }
+        }
+        _ => {}
+    }
+}
 const MAX_SCANNED_MARKDOWN_FILES: usize = 5000;
 const PDF_PAPER_WIDTH_INCHES: f64 = 8.27;
 const PDF_PAPER_HEIGHT_INCHES: f64 = 11.69;
@@ -302,7 +359,10 @@ async fn watch_current_file(
             .watched_path
             .lock()
             .map_err(|_| "Failed to lock watched path state".to_string())?;
-        if watched_path.as_ref().is_some_and(|existing| same_file_path(existing, &path)) {
+        if watched_path
+            .as_ref()
+            .is_some_and(|existing| same_file_path(existing, &path))
+        {
             return Ok(());
         }
     }
@@ -338,10 +398,7 @@ async fn watch_current_file(
             .any(|event_path| same_file_path(event_path, &watched_file));
 
         if should_refresh {
-            let _ = app_handle.emit(
-                "file-changed",
-                watched_file.to_string_lossy().to_string(),
-            );
+            let _ = app_handle.emit("file-changed", watched_file.to_string_lossy().to_string());
         }
     })
     .map_err(|error| format!("Failed to create file watcher: {}", error))?;
@@ -983,6 +1040,107 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
     Ok(())
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn build_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<Menu<tauri::Wry>> {
+    let about = PredefinedMenuItem::about(app, Some("关于 LightMarkit"), None)?;
+    let app_separator_one = PredefinedMenuItem::separator(app)?;
+    let settings = MenuItem::with_id(app, "settings", "设置…", true, Some("CmdOrCtrl+,"))?;
+    let app_separator_two = PredefinedMenuItem::separator(app)?;
+    let hide = PredefinedMenuItem::hide(app, Some("隐藏 LightMarkit"))?;
+    let hide_others = PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?;
+    let show_all = PredefinedMenuItem::show_all(app, Some("全部显示"))?;
+    let app_separator_three = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 LightMarkit", true, Some("CmdOrCtrl+Q"))?;
+    let application_menu = Submenu::with_items(
+        app,
+        "LightMarkit",
+        true,
+        &[
+            &about,
+            &app_separator_one,
+            &settings,
+            &app_separator_two,
+            &hide,
+            &hide_others,
+            &show_all,
+            &app_separator_three,
+            &quit,
+        ],
+    )?;
+
+    let open_file = MenuItem::with_id(app, "open-file", "打开文件…", true, Some("CmdOrCtrl+O"))?;
+    let open_folder = MenuItem::with_id(
+        app,
+        "open-folder",
+        "打开文件夹…",
+        true,
+        Some("CmdOrCtrl+Shift+O"),
+    )?;
+    let save_file = MenuItem::with_id(app, "save-file", "保存", true, Some("CmdOrCtrl+S"))?;
+    let file_menu =
+        Submenu::with_items(app, "文件", true, &[&open_file, &open_folder, &save_file])?;
+
+    let undo = PredefinedMenuItem::undo(app, Some("撤销"))?;
+    let redo = PredefinedMenuItem::redo(app, Some("重做"))?;
+    let edit_separator_one = PredefinedMenuItem::separator(app)?;
+    let cut = PredefinedMenuItem::cut(app, Some("剪切"))?;
+    let copy = PredefinedMenuItem::copy(app, Some("复制"))?;
+    let paste = PredefinedMenuItem::paste(app, Some("粘贴"))?;
+    let edit_separator_two = PredefinedMenuItem::separator(app)?;
+    let select_all = PredefinedMenuItem::select_all(app, Some("全选"))?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "编辑",
+        true,
+        &[
+            &undo,
+            &redo,
+            &edit_separator_one,
+            &cut,
+            &copy,
+            &paste,
+            &edit_separator_two,
+            &select_all,
+        ],
+    )?;
+
+    let export_html = MenuItem::with_id(app, "export-html", "导出 HTML…", true, None::<&str>)?;
+    let export_pdf = MenuItem::with_id(app, "export-pdf", "导出 PDF…", true, None::<&str>)?;
+    let export_menu = Submenu::with_items(app, "导出", true, &[&export_html, &export_pdf])?;
+
+    let toggle_view = MenuItem::with_id(
+        app,
+        "toggle-view",
+        "切换编辑/预览",
+        true,
+        Some("CmdOrCtrl+/"),
+    )?;
+    let view_menu = Submenu::with_items(app, "视图", true, &[&toggle_view])?;
+
+    let minimize = PredefinedMenuItem::minimize(app, Some("最小化"))?;
+    let fullscreen = PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?;
+    let window_separator = PredefinedMenuItem::separator(app)?;
+    let bring_all = PredefinedMenuItem::bring_all_to_front(app, Some("前置全部窗口"))?;
+    let window_menu = Submenu::with_items(
+        app,
+        "窗口",
+        true,
+        &[&minimize, &fullscreen, &window_separator, &bring_all],
+    )?;
+
+    Menu::with_items(
+        app,
+        &[
+            &application_menu,
+            &file_menu,
+            &edit_menu,
+            &export_menu,
+            &view_menu,
+            &window_menu,
+        ],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial_file = initial_file_from_args();
@@ -1009,50 +1167,54 @@ pub fn run() {
             export_pdf
         ])
         .setup(|app| {
-            let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-            let hide = MenuItem::with_id(app, "hide", "隐藏窗口", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+            #[cfg(target_os = "macos")]
+            {
+                app.set_menu(build_macos_menu(app)?)?;
+            }
+
+            app.on_menu_event(|app, event| {
+                handle_system_menu_event(app, event.id.as_ref());
+            });
+
+            let open_file =
+                MenuItem::with_id(app, "tray-open-file", "打开文件…", true, None::<&str>)?;
+            let open_folder =
+                MenuItem::with_id(app, "tray-open-folder", "打开文件夹…", true, None::<&str>)?;
+            let save_file = MenuItem::with_id(app, "tray-save-file", "保存", true, None::<&str>)?;
+            let first_separator = PredefinedMenuItem::separator(app)?;
+            let export_html =
+                MenuItem::with_id(app, "tray-export-html", "导出 HTML…", true, None::<&str>)?;
+            let export_pdf =
+                MenuItem::with_id(app, "tray-export-pdf", "导出 PDF…", true, None::<&str>)?;
+            let settings = MenuItem::with_id(app, "tray-settings", "设置", true, None::<&str>)?;
+            let second_separator = PredefinedMenuItem::separator(app)?;
+            let show = MenuItem::with_id(app, "tray-show", "显示窗口", true, None::<&str>)?;
+            let hide = MenuItem::with_id(app, "tray-hide", "隐藏窗口", true, None::<&str>)?;
+            let third_separator = PredefinedMenuItem::separator(app)?;
+            let quit = MenuItem::with_id(app, "tray-quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &open_file,
+                    &open_folder,
+                    &save_file,
+                    &first_separator,
+                    &export_html,
+                    &export_pdf,
+                    &settings,
+                    &second_separator,
+                    &show,
+                    &hide,
+                    &third_separator,
+                    &quit,
+                ],
+            )?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("LightMarkit")
                 .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "hide" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.hide();
-                        }
-                    }
-                    "quit" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.close();
-                        } else {
-                            app.exit(0);
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
+                .show_menu_on_left_click(true)
                 .build(app)?;
 
             Ok(())
@@ -1095,8 +1257,8 @@ mod tests {
 
     #[test]
     fn decodes_utf8_bom_markdown_bytes() {
-        let content = decode_markdown_bytes(&[0xef, 0xbb, 0xbf, b'#', b' ', b'N', b'o', b't', b'e'])
-            .unwrap();
+        let content =
+            decode_markdown_bytes(&[0xef, 0xbb, 0xbf, b'#', b' ', b'N', b'o', b't', b'e']).unwrap();
 
         assert_eq!(content, "# Note");
     }

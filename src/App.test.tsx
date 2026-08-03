@@ -6,6 +6,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen } from '@tauri-apps/api/event'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
 import { fileRead, fileWrite, getCurrentFile } from './utils/fileApi'
@@ -81,6 +82,7 @@ describe('App', () => {
     vi.mocked(fileRead).mockResolvedValue('')
     vi.mocked(check).mockResolvedValue(null)
     vi.mocked(relaunch).mockResolvedValue(undefined)
+    vi.mocked(listen).mockResolvedValue(vi.fn())
     vi.mocked(getCurrentWindow).mockReturnValue(
       mockWindow as unknown as ReturnType<typeof getCurrentWindow>
     )
@@ -153,7 +155,9 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument()
     expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '编辑' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('button', { name: '关闭设置' }).closest('.settings-detail')).not.toBeNull()
+    expect(
+      screen.getByRole('button', { name: '关闭设置' }).closest('.settings-detail')
+    ).not.toBeNull()
     expect(screen.queryByRole('heading', { name: '关于 LightMarkit' })).not.toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /铺满/ })).toBeChecked()
     fireEvent.click(screen.getByRole('radio', { name: /默认阅读宽度/ }))
@@ -174,10 +178,7 @@ describe('App', () => {
   })
 
   it('应该忽略旧版宽度字段并默认使用铺满模式', () => {
-    localStorage.setItem(
-      'lightmarkit.app-state.v1',
-      JSON.stringify({ isEditorFullWidth: false })
-    )
+    localStorage.setItem('lightmarkit.app-state.v1', JSON.stringify({ isEditorFullWidth: false }))
 
     render(<App />)
 
@@ -322,7 +323,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument()
   })
 
-  it('macOS 应该在标题栏左侧按原生顺序渲染窗口控制按钮', () => {
+  it('macOS 应该交给系统标题栏渲染原生窗口控制按钮', () => {
     vi.stubGlobal('navigator', {
       platform: 'MacIntel',
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
@@ -330,16 +331,62 @@ describe('App', () => {
 
     render(<App />)
 
-    const controls = screen.getByRole('group', { name: '窗口控制' })
-    expect(controls).toHaveClass('macos')
-    expect(controls.parentElement?.firstElementChild).toBe(controls)
-    expect(
-      Array.from(controls.querySelectorAll('button'), (button) => button.getAttribute('aria-label'))
-    ).toEqual(['关闭', '最小化', '缩放'])
-    expect(screen.queryByRole('button', { name: '最大化' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '窗口控制' })).not.toBeInTheDocument()
+    expect(document.querySelector('.app-header')).toHaveClass('platform-macos')
+    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    expect(screen.getByRole('menuitem', { name: '打开文件' })).toHaveAttribute(
+      'title',
+      '打开文件 (⌘O)'
+    )
+    expect(screen.getByRole('button', { name: '撤销' })).toHaveAttribute('title', '撤销上一步 (⌘Z)')
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(screen.getByRole('button', { name: '关闭设置' }).closest('.settings-sidebar')).not.toBeNull()
+    expect(
+      screen.getByRole('button', { name: '关闭设置' }).closest('.settings-sidebar')
+    ).not.toBeNull()
+  })
+
+  it('macOS 应该使用 Command 触发应用级快捷键', () => {
+    vi.stubGlobal('navigator', {
+      platform: 'MacIntel',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
+    })
+
+    render(<App />)
+
+    fireEvent.keyDown(window, { key: '/', metaKey: true })
+    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'o', metaKey: true })
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false }))
+
+    fireEvent.keyDown(window, { key: 'o', metaKey: true, shiftKey: true })
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true }))
+
+    fireEvent.keyDown(window, { key: 's', metaKey: true })
+    expect(save).toHaveBeenCalled()
+  })
+
+  it('应该响应系统菜单和托盘发出的应用操作', async () => {
+    let systemMenuHandler: ((event: { payload: string }) => void) | undefined
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === 'system-menu-action') {
+        systemMenuHandler = handler as unknown as typeof systemMenuHandler
+      }
+      return vi.fn()
+    })
+
+    render(<App />)
+
+    await waitFor(() => expect(systemMenuHandler).toBeDefined())
+    systemMenuHandler?.({ payload: 'settings' })
+
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument()
+
+    systemMenuHandler?.({ payload: 'open-file' })
+    await waitFor(() => {
+      expect(open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false }))
+    })
   })
 
   it('应该调用 Tauri 窗口控制 API', () => {

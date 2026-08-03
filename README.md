@@ -1,10 +1,10 @@
 # LightMarkit
 
-<!-- release-version: 0.4.0 -->
+<!-- release-version: 0.4.1 -->
 
 LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌面 Markdown 编辑器，支持 Windows 和 macOS。
 
-当前发布版本：[v0.4.0](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.0)
+当前发布版本：[v0.4.1](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.1)
 
 ## 功能
 
@@ -22,7 +22,7 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 - 实时渲染 Markdown，支持表格、只读任务列表、脚注、删除线、自动链接和软换行。
 - 支持相对路径、绝对路径和 `file://` 形式的本地图片。
 - 支持 Mermaid 图表渲染。
-- 提供所见即所得编辑和纯预览两种单栏视图，可通过 `Ctrl+/` 快速切换，并保持当前阅读位置和滚动条布局稳定。
+- 提供所见即所得编辑和纯预览两种单栏视图，可通过 Windows 的 `Ctrl+/` 或 macOS 的 `⌘/` 快速切换，并保持当前阅读位置和滚动条布局稳定。
 - 编辑区代码块支持语言选择、语法高亮、复制和折叠；输入新行时会连续扩展代码块样式。
 - 预览代码块保留原始缩进和长行横向滚动，并支持复制与折叠；折叠后显示语言、首个非空代码行和总行数摘要。
 
@@ -38,7 +38,8 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 - 导出 HTML，并嵌入本地图片和已经渲染的 Mermaid 图表。
 - 导出 PDF，复用预览样式和渲染结果。
 - 应用界面适配系统明暗外观。
-- 窗口控制适配桌面平台：Windows 位于右上角，macOS 使用左上角红黄绿按钮。
+- 窗口控制适配桌面平台：Windows 使用右上角自定义按钮，macOS 使用系统原生标题栏和红黄绿按钮。
+- 系统托盘菜单支持打开文件或文件夹、保存、导出、进入设置以及显示、隐藏和退出应用；macOS 同时提供原生顶部菜单栏。
 - 支持在“关于”界面检查、下载并安装经过签名验证的应用更新。
 
 ## 下载

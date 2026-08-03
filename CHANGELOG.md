@@ -2,11 +2,18 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-03
+
+### 发布
+
+- 发布 Windows x64 NSIS 与 macOS Universal DMG，并继续提供两个平台的签名自动更新包。
+
 ### 新增
 
 - 文档大纲支持按标题层级折叠和展开子标题。
 - 编辑区代码块支持语言选择、语言语法高亮、复制和折叠操作。
 - Markdown 预览新增脚注支持，任务列表在只读预览中保持清晰展示。
+- 系统托盘菜单支持打开、保存、导出、设置和窗口管理操作，macOS 同时新增系统原生顶部菜单栏。
 
 ### 改进
 
@@ -14,12 +21,14 @@
 - 大纲点击在编辑和预览视图中都会将对应标题精确置于内容区顶部。
 - 预览代码块保留原始缩进，长行改用横向滚动；代码块折叠状态按源码行稳定保存。
 - 所见即所得表格操作改为跟随当前单元格的浮动行列菜单。
+- macOS 改用系统原生标题栏和窗口控制按钮，Windows 继续使用自定义标题栏布局。
 
 ### 修复
 
 - 修复多行代码块背景和边框断裂、折叠按钮缺失，以及回车新增代码行未连续渲染的问题。
 - 修复单个 Mermaid 图表解析失败时影响其他图表渲染的问题，并显示可读的错误信息。
 - 仅在 Markdown 内容实际变化时写入文件；切换视图、窗口失焦、关闭或显式保存未修改文档不会刷新文件时间戳。
+- 修复 macOS 应用级快捷键只识别 `Ctrl` 的问题，并将菜单提示切换为对应的 `⌘` 组合键。
 
 ## [0.4.0] - 2026-07-29
 
@@ -142,7 +151,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.3...v0.3.4

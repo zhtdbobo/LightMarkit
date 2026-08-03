@@ -152,31 +152,20 @@ function WindowControlIcon({ action }: { action: 'minimize' | 'maximize' | 'clos
 }
 
 interface WindowControlsProps {
-  isMacOS: boolean
   onClose: () => void
   onMinimize: () => void
   onToggleMaximize: () => void
 }
 
-function WindowControls({ isMacOS, onClose, onMinimize, onToggleMaximize }: WindowControlsProps) {
-  const controls = isMacOS
-    ? [
-        { action: 'close' as const, label: '关闭', onClick: onClose },
-        { action: 'minimize' as const, label: '最小化', onClick: onMinimize },
-        { action: 'maximize' as const, label: '缩放', onClick: onToggleMaximize },
-      ]
-    : [
-        { action: 'minimize' as const, label: '最小化', onClick: onMinimize },
-        { action: 'maximize' as const, label: '最大化', onClick: onToggleMaximize },
-        { action: 'close' as const, label: '关闭', onClick: onClose },
-      ]
+function WindowControls({ onClose, onMinimize, onToggleMaximize }: WindowControlsProps) {
+  const controls = [
+    { action: 'minimize' as const, label: '最小化', onClick: onMinimize },
+    { action: 'maximize' as const, label: '最大化', onClick: onToggleMaximize },
+    { action: 'close' as const, label: '关闭', onClick: onClose },
+  ]
 
   return (
-    <div
-      className={`window-controls ${isMacOS ? 'macos' : 'windows'}`}
-      role="group"
-      aria-label="窗口控制"
-    >
+    <div className="window-controls windows" role="group" aria-label="窗口控制">
       {controls.map(({ action, label, onClick }) => (
         <button
           key={action}
@@ -199,6 +188,14 @@ function isMacOSPlatform(): boolean {
   }
 
   return /^Mac/.test(navigator.platform) || /Macintosh|Mac OS X/.test(navigator.userAgent)
+}
+
+function getShortcutLabel(isMacOS: boolean, key: string, shift = false): string {
+  if (isMacOS) {
+    return `${shift ? '⇧' : ''}⌘${key}`
+  }
+
+  return `Ctrl+${shift ? 'Shift+' : ''}${key}`
 }
 
 interface SettingsPageProps {
@@ -480,6 +477,9 @@ function getEditorViewportTopLine(view: EditorView): number {
 
 function App() {
   const isMacOS = useMemo(() => isMacOSPlatform(), [])
+  const openFileShortcut = getShortcutLabel(isMacOS, 'O')
+  const openFolderShortcut = getShortcutLabel(isMacOS, 'O', true)
+  const undoShortcut = getShortcutLabel(isMacOS, 'Z')
   const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
@@ -918,6 +918,68 @@ function App() {
     }
   }, [currentFile, content, handleSaveAsFile])
 
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    void listen<string>('system-menu-action', (event) => {
+      if (disposed) {
+        return
+      }
+
+      setOpenMenu(null)
+
+      switch (event.payload) {
+        case 'open-file':
+          setIsSettingsPageOpen(false)
+          void handleOpenFile()
+          break
+        case 'open-folder':
+          setIsSettingsPageOpen(false)
+          void handleOpenFolder()
+          break
+        case 'save-file':
+          void handleSaveFile()
+          break
+        case 'export-html':
+          setIsSettingsPageOpen(false)
+          void handleExportHtml()
+          break
+        case 'export-pdf':
+          setIsSettingsPageOpen(false)
+          void handleExportPdf()
+          break
+        case 'toggle-view':
+          setIsSettingsPageOpen(false)
+          handleToggleViewMode()
+          break
+        case 'settings':
+          setIsSettingsPageOpen(true)
+          break
+        default:
+          break
+      }
+    }).then((unsubscribe) => {
+      if (disposed) {
+        unsubscribe()
+        return
+      }
+      unlisten = unsubscribe
+    })
+
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [
+    handleExportHtml,
+    handleExportPdf,
+    handleOpenFile,
+    handleOpenFolder,
+    handleSaveFile,
+    handleToggleViewMode,
+  ])
+
   const handleCloseWindow = useCallback(async () => {
     if (!currentFile && content.trim().length > 0) {
       const saved = await handleSaveAsFile()
@@ -1081,30 +1143,32 @@ function App() {
     void restoreFolders()
   }, [])
 
-  // 处理 Ctrl+/ 快捷键切换模式
+  // 使用当前平台的主修饰键：Windows/Linux 为 Ctrl，macOS 为 Command。
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const hasPrimaryModifier = isMacOS ? e.metaKey : e.ctrlKey
+
       // 模式切换快捷键
-      if (e.ctrlKey && e.key === '/') {
+      if (hasPrimaryModifier && e.key === '/') {
         e.preventDefault()
         handleToggleViewMode()
       }
 
       // 打开文件夹快捷键
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'o') {
+      if (hasPrimaryModifier && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         handleOpenFolder()
         return
       }
 
       // 打开文件快捷键
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
+      if (hasPrimaryModifier && !e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         handleOpenFile()
       }
 
       // 保存文件快捷键
-      if (e.ctrlKey && e.key.toLowerCase() === 's') {
+      if (hasPrimaryModifier && e.key.toLowerCase() === 's') {
         e.preventDefault()
         handleSaveFile()
       }
@@ -1112,7 +1176,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleOpenFile, handleOpenFolder, handleSaveFile, handleToggleViewMode])
+  }, [handleOpenFile, handleOpenFolder, handleSaveFile, handleToggleViewMode, isMacOS])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -1427,14 +1491,6 @@ function App() {
         ref={headerActionsRef}
         onPointerDown={handleDragWindow}
       >
-        {isMacOS && (
-          <WindowControls
-            isMacOS
-            onClose={handleCloseWindow}
-            onMinimize={handleMinimizeWindow}
-            onToggleMaximize={handleToggleMaximizeWindow}
-          />
-        )}
         <nav className="app-menu-bar" aria-label="应用菜单">
           <div className={`toolbar-menu ${openMenu === 'file' ? 'open' : ''}`}>
             <button
@@ -1452,7 +1508,7 @@ function App() {
                 type="button"
                 className="menu-item"
                 onClick={() => runToolbarAction(handleOpenFile)}
-                title="打开文件 (Ctrl+O)"
+                title={`打开文件 (${openFileShortcut})`}
                 role="menuitem"
               >
                 打开文件
@@ -1461,7 +1517,7 @@ function App() {
                 type="button"
                 className="menu-item"
                 onClick={() => runToolbarAction(handleOpenFolder)}
-                title="打开文件夹 (Ctrl+Shift+O)"
+                title={`打开文件夹 (${openFolderShortcut})`}
                 role="menuitem"
               >
                 打开文件夹
@@ -1521,7 +1577,7 @@ function App() {
             className="undo-button"
             onClick={handleUndo}
             disabled={isUndoDisabled}
-            title="撤销上一步 (Ctrl+Z)"
+            title={`撤销上一步 (${undoShortcut})`}
             aria-label="撤销"
           >
             <UndoIcon />
@@ -1532,7 +1588,6 @@ function App() {
           {saveStatus === 'saved' && <span className="save-status">✓ 已自动保存</span>}
           {!isMacOS && (
             <WindowControls
-              isMacOS={false}
               onClose={handleCloseWindow}
               onMinimize={handleMinimizeWindow}
               onToggleMaximize={handleToggleMaximizeWindow}
