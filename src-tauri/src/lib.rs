@@ -54,6 +54,8 @@ struct FileInfo {
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_SCAN_DEPTH: usize = 20;
 const SYSTEM_MENU_ACTION_EVENT: &str = "system-menu-action";
+#[cfg(target_os = "macos")]
+const OPEN_FILE_REQUESTED_EVENT: &str = "open-file-requested";
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -66,6 +68,33 @@ fn show_main_window(app: &tauri::AppHandle) {
 fn dispatch_system_menu_action(app: &tauri::AppHandle, action: &str) {
     show_main_window(app);
     let _ = app.emit_to("main", SYSTEM_MENU_ACTION_EVENT, action);
+}
+
+fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
+    #[cfg(target_os = "macos")]
+    if let tauri::RunEvent::Opened { urls } = event {
+        let Some(path) = urls
+            .into_iter()
+            .filter_map(|url| url.to_file_path().ok())
+            .find(|path| path.is_file() && is_markdown_file_path(path))
+        else {
+            return;
+        };
+
+        if let Ok(mut current_file) = app.state::<FileState>().current_file.lock() {
+            *current_file = Some(path.clone());
+        }
+
+        show_main_window(app);
+        let _ = app.emit_to(
+            "main",
+            OPEN_FILE_REQUESTED_EVENT,
+            path.to_string_lossy().into_owned(),
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, event);
 }
 
 fn handle_system_menu_event(app: &tauri::AppHandle, id: &str) {
@@ -1145,7 +1174,7 @@ fn build_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<Menu<tauri::W
 pub fn run() {
     let initial_file = initial_file_from_args();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -1219,8 +1248,10 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(handle_run_event);
 }
 
 #[cfg(test)]

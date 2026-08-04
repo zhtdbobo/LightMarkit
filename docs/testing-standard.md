@@ -21,7 +21,7 @@ cargo test --target-dir target-codex-test
 发布或触及 Tauri 配置、权限、Rust 依赖、窗口控制、文件系统、导出功能时，还必须在仓库根目录执行：
 
 ```powershell
-pnpm tauri build
+pnpm tauri:build:local
 ```
 
 ## 通过标准
@@ -30,7 +30,7 @@ pnpm tauri build
 - `pnpm test:run` 必须全部通过，不允许跳过关键业务测试来换取通过。
 - `pnpm build` 必须成功完成 TypeScript 和 Vite 生产构建。
 - `cargo test --target-dir target-codex-test` 必须成功编译并执行 Rust 测试。
-- `pnpm tauri build` 必须成功生成桌面应用和安装包。
+- `pnpm tauri:build:local` 必须成功生成桌面应用和安装包。
 - Vite 的 chunk size warning 目前允许存在，但必须在结果中说明它是性能警告，不是构建失败。
 
 ## 功能覆盖要求
@@ -42,7 +42,7 @@ pnpm tauri build
 - 自动保存：已有文件的内容变更保存、关闭前保存。
 - 窗口控制：最小化、最大化、关闭、无标题栏拖拽权限。
 - 视图切换：编辑、分屏、预览三种模式和快捷键。
-- Tauri 权限：新增前端 Tauri API 调用时，必须同步更新 `src-tauri/capabilities/default.json` 并跑 `pnpm tauri build`。
+- Tauri 权限：新增前端 Tauri API 调用时，必须同步更新 `src-tauri/capabilities/default.json` 并跑 `pnpm tauri:build:local`。
 
 ## 冗余检查
 
@@ -66,7 +66,7 @@ rg -n "旧类名或旧 API 名" src src-tauri
 cargo test --target-dir target-codex-test
 ```
 
-如果 `pnpm tauri build` 在受限环境中出现 `spawn EPERM`，需要在具备子进程权限的环境中重跑。单独的 `pnpm build` 通过不能替代 `pnpm tauri build`。
+如果 `pnpm tauri:build:local` 在受限环境中出现 `spawn EPERM`，需要在具备子进程权限的环境中重跑。单独的 `pnpm build` 通过不能替代 `pnpm tauri:build:local`。
 
 ## 结果记录格式
 

@@ -637,6 +637,15 @@ function App() {
     void getCurrentWindow().startDragging()
   }, [])
 
+  const loadFile = useCallback(async (filePath: string) => {
+    const fileContent = await fileRead(filePath)
+    setContent(fileContent)
+    lastSyncedContentRef.current = fileContent
+    setCurrentFilePath(filePath)
+    setFileError(null)
+    await setCurrentFile(filePath)
+  }, [])
+
   // 打开文件
   const handleOpenFile = useCallback(async () => {
     try {
@@ -651,18 +660,13 @@ function App() {
       })
 
       if (selected && typeof selected === 'string') {
-        const fileContent = await fileRead(selected)
-        setContent(fileContent)
-        lastSyncedContentRef.current = fileContent
-        setCurrentFilePath(selected)
-        setFileError(null)
-        await setCurrentFile(selected)
+        await loadFile(selected)
       }
     } catch (error) {
       console.error('Failed to open file:', error)
       setFileError(`无法打开文件：${getErrorMessage(error)}`)
     }
-  }, [])
+  }, [loadFile])
 
   // 打开文件夹
   const handleOpenFolder = useCallback(async () => {
@@ -716,17 +720,12 @@ function App() {
   // 从文件列表选择文件
   const handleFileSelect = useCallback(async (filePath: string) => {
     try {
-      const fileContent = await fileRead(filePath)
-      setContent(fileContent)
-      lastSyncedContentRef.current = fileContent
-      setCurrentFilePath(filePath)
-      setFileError(null)
-      await setCurrentFile(filePath)
+      await loadFile(filePath)
     } catch (error) {
       console.error('Failed to open file from list:', error)
       setFileError(`无法打开文件：${getErrorMessage(error)}`)
     }
-  }, [])
+  }, [loadFile])
 
   const handleFolderClose = useCallback((folderPath: string) => {
     setOpenedFolders((folders) => folders.filter((folder) => folder.path !== folderPath))
@@ -979,6 +978,35 @@ function App() {
     handleSaveFile,
     handleToggleViewMode,
   ])
+
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    void listen<string>('open-file-requested', (event) => {
+      if (disposed) {
+        return
+      }
+
+      setOpenMenu(null)
+      setIsSettingsPageOpen(false)
+      void loadFile(event.payload).catch((error) => {
+        console.error('Failed to open file requested by the system:', error)
+        setFileError(`无法打开文件：${getErrorMessage(error)}`)
+      })
+    }).then((unsubscribe) => {
+      if (disposed) {
+        unsubscribe()
+        return
+      }
+      unlisten = unsubscribe
+    })
+
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [loadFile])
 
   const handleCloseWindow = useCallback(async () => {
     if (!currentFile && content.trim().length > 0) {

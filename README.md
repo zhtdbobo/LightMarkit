@@ -1,10 +1,10 @@
 # LightMarkit
 
-<!-- release-version: 0.4.1 -->
+<!-- release-version: 0.4.2 -->
 
 LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌面 Markdown 编辑器，支持 Windows 和 macOS。
 
-当前发布版本：[v0.4.1](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.1)
+当前发布版本：[v0.4.2](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.2)
 
 ## 功能
 
@@ -12,6 +12,7 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 
 - 使用 CodeMirror 6 提供 Markdown 编辑、行号和语法样式。
 - 支持打开单个 Markdown 文件或文件夹，并在文件树中切换文档。
+- macOS 支持从访达双击 Markdown 文件或通过“打开方式”直接载入文档。
 - 文件内容实际变更后自动保存；切换编辑/预览、窗口失焦或保存未修改文档不会重写文件，避免无意义地刷新文件时间戳。
 - 在行首输入 `/` 可使用 13 个中文快捷命令，快速插入标题、列表、待办事项、引用、代码块、链接、图片和表格等内容。
 - 支持 UTF-8、UTF-8 BOM 和常见旧编码 Markdown 文件。
@@ -89,8 +90,8 @@ pnpm lint
 # 构建前端
 pnpm build
 
-# 根据当前系统构建桌面应用和安装包
-pnpm tauri build
+# 根据当前系统构建桌面应用和安装包（不生成签名更新包）
+pnpm tauri:build:local
 ```
 
 其他命令：
@@ -118,8 +119,11 @@ pnpm build
 Set-Location src-tauri
 cargo test --target-dir target-codex-test
 Set-Location ..
-pnpm tauri build
+pnpm tauri:build:local
 ```
+
+`pnpm tauri build` 会同时生成自动更新产物，需要设置
+`TAURI_SIGNING_PRIVATE_KEY`；通常仅由 GitHub Actions 发布工作流调用。
 
 完整验收要求见 [docs/testing-standard.md](docs/testing-standard.md)。
 
@@ -164,6 +168,7 @@ LightMarkit/
 |   |-- capabilities/       # Tauri 权限配置
 |   |-- src/                # Rust 命令与应用入口
 |   |-- tauri.conf.json     # 通用应用、打包和更新配置
+|   |-- tauri.local.conf.json # 不生成签名更新包的本地构建配置
 |   |-- tauri.windows.conf.json # Windows NSIS 配置
 |   `-- tauri.macos.conf.json   # macOS DMG 配置
 |-- docs/                   # 开发规范、计划和版本说明

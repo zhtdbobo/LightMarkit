@@ -389,6 +389,27 @@ describe('App', () => {
     })
   })
 
+  it('应该打开 macOS 访达发送的文件', async () => {
+    let openFileHandler: ((event: { payload: string }) => void) | undefined
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === 'open-file-requested') {
+        openFileHandler = handler as unknown as typeof openFileHandler
+      }
+      return vi.fn()
+    })
+    vi.mocked(fileRead).mockResolvedValue('# From Finder')
+
+    render(<App />)
+
+    await waitFor(() => expect(openFileHandler).toBeDefined())
+    openFileHandler?.({ payload: '/Users/test/Documents/from-finder.md' })
+
+    await waitFor(() => {
+      expect(fileRead).toHaveBeenCalledWith('/Users/test/Documents/from-finder.md')
+      expect(screen.getByTestId('editor-container')).toHaveTextContent('From Finder')
+    })
+  })
+
   it('应该调用 Tauri 窗口控制 API', () => {
     render(<App />)
 

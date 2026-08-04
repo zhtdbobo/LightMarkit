@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-04
+
+### 发布
+
+- 发布 Windows x64 NSIS 与 macOS Universal DMG，并继续提供两个平台的签名自动更新包。
+
+### 修复
+
+- macOS 现在会处理访达发送的系统打开事件，支持双击 Markdown 文件和通过“打开方式”载入文档；应用已运行或冷启动时均可正确打开目标文件。
+
+### 构建
+
+- 新增 `pnpm tauri:build:local`，本地构建安装包时不再因缺少自动更新签名私钥而返回失败；正式发布仍生成并签名更新产物。
+
 ## [0.4.1] - 2026-08-03
 
 ### 发布
@@ -151,7 +165,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.4...v0.3.5
