@@ -15,6 +15,7 @@ import {
   fileRead,
   fileWrite,
   getCurrentFile,
+  markFrontendReady,
   setCurrentFile,
   watchCurrentFile,
 } from './utils/fileApi'
@@ -339,7 +340,7 @@ function SettingsPage({
                   </span>
                   <div>
                     <h3>专注写作</h3>
-                    <p>所见即所得的 Markdown 编辑体验</p>
+                    <p>源码编辑与独立预览，输入位置清晰准确</p>
                   </div>
                 </div>
                 <div className="about-feature-card">
@@ -544,6 +545,8 @@ function App() {
   const isProgrammaticCloseRef = useRef(false)
   const activeOutlineIdRef = useRef<string | null>(null)
   const pendingViewScrollLineRef = useRef<number | null>(null)
+  const fileLoadRequestRef = useRef(0)
+  const systemOpenRequestRef = useRef(0)
 
   const updateUndoAvailability = useCallback((view: EditorView | null = editorViewRef.current) => {
     setCanUndo(view ? undoDepth(view.state) > 0 : false)
@@ -638,12 +641,23 @@ function App() {
   }, [])
 
   const loadFile = useCallback(async (filePath: string) => {
+    const requestId = ++fileLoadRequestRef.current
     const fileContent = await fileRead(filePath)
+
+    if (requestId !== fileLoadRequestRef.current) {
+      return
+    }
+
+    await setCurrentFile(filePath)
+
+    if (requestId !== fileLoadRequestRef.current) {
+      return
+    }
+
     setContent(fileContent)
     lastSyncedContentRef.current = fileContent
     setCurrentFilePath(filePath)
     setFileError(null)
-    await setCurrentFile(filePath)
   }, [])
 
   // 打开文件
@@ -718,14 +732,17 @@ function App() {
   }, [])
 
   // 从文件列表选择文件
-  const handleFileSelect = useCallback(async (filePath: string) => {
-    try {
-      await loadFile(filePath)
-    } catch (error) {
-      console.error('Failed to open file from list:', error)
-      setFileError(`无法打开文件：${getErrorMessage(error)}`)
-    }
-  }, [loadFile])
+  const handleFileSelect = useCallback(
+    async (filePath: string) => {
+      try {
+        await loadFile(filePath)
+      } catch (error) {
+        console.error('Failed to open file from list:', error)
+        setFileError(`无法打开文件：${getErrorMessage(error)}`)
+      }
+    },
+    [loadFile]
+  )
 
   const handleFolderClose = useCallback((folderPath: string) => {
     setOpenedFolders((folders) => folders.filter((folder) => folder.path !== folderPath))
@@ -988,6 +1005,7 @@ function App() {
         return
       }
 
+      systemOpenRequestRef.current += 1
       setOpenMenu(null)
       setIsSettingsPageOpen(false)
       void loadFile(event.payload).catch((error) => {
@@ -1000,6 +1018,10 @@ function App() {
         return
       }
       unlisten = unsubscribe
+
+      void markFrontendReady().catch((error) => {
+        console.error('Failed to mark frontend ready:', error)
+      })
     })
 
     return () => {
@@ -1102,6 +1124,8 @@ function App() {
   // 加载当前文件 + 恢复上次文件夹
   useEffect(() => {
     const loadCurrentFile = async () => {
+      const systemOpenRequest = systemOpenRequestRef.current
+
       try {
         let path = await getCurrentFile()
 
@@ -1119,13 +1143,8 @@ function App() {
           }
         }
 
-        if (path) {
-          const fileContent = await fileRead(path)
-          setContent(fileContent)
-          lastSyncedContentRef.current = fileContent
-          setCurrentFilePath(path)
-          setFileError(null)
-          await setCurrentFile(path)
+        if (path && systemOpenRequestRef.current === systemOpenRequest) {
+          await loadFile(path)
         }
       } catch (error) {
         console.error('Failed to load current file:', error)
@@ -1169,7 +1188,7 @@ function App() {
 
     void loadCurrentFile()
     void restoreFolders()
-  }, [])
+  }, [loadFile])
 
   // 使用当前平台的主修饰键：Windows/Linux 为 Ctrl，macOS 为 Command。
   useEffect(() => {
@@ -1179,7 +1198,9 @@ function App() {
       // 模式切换快捷键
       if (hasPrimaryModifier && e.key === '/') {
         e.preventDefault()
+        e.stopPropagation()
         handleToggleViewMode()
+        return
       }
 
       // 打开文件夹快捷键
@@ -1202,8 +1223,10 @@ function App() {
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    // 使用捕获阶段抢先处理 Ctrl/Command+/，避免 CodeMirror 将它解释为“注释当前行”
+    // 并向文档写入 <!-- -->。
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [handleOpenFile, handleOpenFolder, handleSaveFile, handleToggleViewMode, isMacOS])
 
   useEffect(() => {
@@ -1256,36 +1279,39 @@ function App() {
     editorViewRef.current = null
   }, [isSettingsPageOpen])
 
-  const handleOutlineItemClick = useCallback((item: OutlineItem) => {
-    activeOutlineIdRef.current = item.id
-    setActiveOutlineId(item.id)
+  const handleOutlineItemClick = useCallback(
+    (item: OutlineItem) => {
+      activeOutlineIdRef.current = item.id
+      setActiveOutlineId(item.id)
 
-    if (viewMode === 'preview') {
-      const previewScroller =
-        previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
-      if (!previewScroller) return
+      if (viewMode === 'preview') {
+        const previewScroller =
+          previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+        if (!previewScroller) return
 
-      const nextScrollTop = previewScrollTopForSourceLine(previewScroller, item.line)
-      if (nextScrollTop !== null) {
-        previewScroller.scrollTop = nextScrollTop
+        const nextScrollTop = previewScrollTopForSourceLine(previewScroller, item.line)
+        if (nextScrollTop !== null) {
+          previewScroller.scrollTop = nextScrollTop
+        }
+        return
       }
-      return
-    }
 
-    const view = editorViewRef.current
-    if (!view) return
+      const view = editorViewRef.current
+      if (!view) return
 
-    const lineNumber = Math.min(Math.max(item.line, 1), view.state.doc.lines)
-    const lineInfo = view.state.doc.line(lineNumber)
-    view.dispatch({ selection: { anchor: lineInfo.from, head: lineInfo.from } })
-    view.focus()
-    view.requestMeasure({
-      read: () => editorScrollTopForLine(view.scrollDOM, view, lineNumber),
-      write: (scrollTop) => {
-        view.scrollDOM.scrollTop = scrollTop
-      },
-    })
-  }, [viewMode])
+      const lineNumber = Math.min(Math.max(item.line, 1), view.state.doc.lines)
+      const lineInfo = view.state.doc.line(lineNumber)
+      view.dispatch({ selection: { anchor: lineInfo.from, head: lineInfo.from } })
+      view.focus()
+      view.requestMeasure({
+        read: () => editorScrollTopForLine(view.scrollDOM, view, lineNumber),
+        write: (scrollTop) => {
+          view.scrollDOM.scrollTop = scrollTop
+        },
+      })
+    },
+    [viewMode]
+  )
 
   useEffect(() => {
     const line = pendingViewScrollLineRef.current
@@ -1301,9 +1327,7 @@ function App() {
         const anchors = exactScrollTop === null ? collectPreviewAnchors(previewScroller) : []
         const nextScrollTop =
           exactScrollTop ??
-          (anchors.length > 0
-            ? previewScrollTopForLine(anchors, line, previewScroller)
-            : null)
+          (anchors.length > 0 ? previewScrollTopForLine(anchors, line, previewScroller) : null)
         if (nextScrollTop !== null) {
           previewScroller.scrollTop = nextScrollTop
           pendingViewScrollLineRef.current = null
@@ -1511,6 +1535,8 @@ function App() {
   }
 
   const isUndoDisabled = isSettingsPageOpen || viewMode !== 'edit' || !canUndo
+  const toggleViewShortcut = getShortcutLabel(isMacOS, '/')
+  const toggleViewLabel = viewMode === 'edit' ? '切换到预览' : '切换到编辑'
 
   return (
     <div className="app-container">
@@ -1651,79 +1677,89 @@ function App() {
           />
         ) : (
           <div
-          className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
-          style={
-            {
-              ...(openedFolders.length > 0 ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
-              '--outline-width': `${outlineWidth}px`,
-            } as React.CSSProperties
-          }
-        >
-          {openedFolders.length > 0 && (
-            <aside className="file-sidebar">
-              <FileList
-                folders={openedFolders}
-                currentFile={currentFile}
-                onFileSelect={handleFileSelect}
-                onFolderClose={handleFolderClose}
-              />
-              <div
-                className="sidebar-resizer"
-                onPointerDown={handleSidebarResizeStart}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="调整文件夹栏宽度"
-                title="拖动调整文件夹栏宽度"
-              />
-            </aside>
-          )}
-          <div className={`editor-preview-container mode-${viewMode}`}>
-            <div className="editor-preview-surface">
-              {viewMode === 'edit' && (
-                <div ref={editorPanelRef} className="editor-panel">
-                  <Editor
-                    value={content}
-                    onChange={setContent}
-                    wysiwyg
-                    currentFile={currentFile}
-                    className={isEditorFullWidth ? 'full-width-editor' : ''}
-                    onReady={(view) => {
-                      editorViewRef.current = view
-                      updateUndoAvailability(view)
-                    }}
-                    onUpdate={updateUndoAvailability}
-                  />
-                </div>
-              )}
-              {viewMode === 'preview' && (
-                <div ref={previewPanelRef} className="preview-panel">
-                  <Preview
-                    content={content}
-                    currentFile={currentFile}
-                    className={isEditorFullWidth ? 'full-width-preview' : ''}
-                  />
-                </div>
-              )}
+            className={`main-content ${openedFolders.length > 0 ? 'with-sidebar' : ''}`}
+            style={
+              {
+                ...(openedFolders.length > 0 ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
+                '--outline-width': `${outlineWidth}px`,
+              } as React.CSSProperties
+            }
+          >
+            {openedFolders.length > 0 && (
+              <aside className="file-sidebar">
+                <FileList
+                  folders={openedFolders}
+                  currentFile={currentFile}
+                  onFileSelect={handleFileSelect}
+                  onFolderClose={handleFolderClose}
+                />
+                <div
+                  className="sidebar-resizer"
+                  onPointerDown={handleSidebarResizeStart}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="调整文件夹栏宽度"
+                  title="拖动调整文件夹栏宽度"
+                />
+              </aside>
+            )}
+            <div className={`editor-preview-container mode-${viewMode}`}>
+              <div className="editor-preview-surface">
+                <button
+                  type="button"
+                  className="view-mode-switch"
+                  onClick={handleToggleViewMode}
+                  aria-label={toggleViewLabel}
+                  title={`${toggleViewLabel} (${toggleViewShortcut})`}
+                >
+                  <span>{viewMode === 'edit' ? '预览' : '编辑'}</span>
+                  <kbd>{toggleViewShortcut}</kbd>
+                </button>
+                {viewMode === 'edit' && (
+                  <div ref={editorPanelRef} className="editor-panel">
+                    <Editor
+                      value={content}
+                      onChange={setContent}
+                      wysiwyg={false}
+                      currentFile={currentFile}
+                      className={isEditorFullWidth ? 'full-width-editor' : ''}
+                      onReady={(view) => {
+                        editorViewRef.current = view
+                        updateUndoAvailability(view)
+                      }}
+                      onUpdate={updateUndoAvailability}
+                    />
+                  </div>
+                )}
+                {viewMode === 'preview' && (
+                  <div ref={previewPanelRef} className="preview-panel">
+                    <Preview
+                      content={content}
+                      currentFile={currentFile}
+                      className={isEditorFullWidth ? 'full-width-preview' : ''}
+                    />
+                  </div>
+                )}
+              </div>
+              <aside
+                className="outline-sidebar"
+                style={{ width: outlineWidth, flex: `0 0 ${outlineWidth}px` }}
+              >
+                <Outline
+                  items={outlineItems}
+                  activeItemId={activeOutlineId}
+                  onItemClick={handleOutlineItemClick}
+                />
+                <div
+                  className="outline-resizer"
+                  onPointerDown={handleOutlineResizeStart}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="调整大纲栏宽度"
+                  title="拖动调整大纲栏宽度"
+                />
+              </aside>
             </div>
-            <aside
-              className="outline-sidebar"
-              style={{ width: outlineWidth, flex: `0 0 ${outlineWidth}px` }}
-            >
-              <Outline
-                items={outlineItems}
-                activeItemId={activeOutlineId}
-                onItemClick={handleOutlineItemClick}
-              />
-              <div
-                className="outline-resizer"
-                onPointerDown={handleOutlineResizeStart}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="调整大纲栏宽度"
-                title="拖动调整大纲栏宽度"
-              />
-            </aside>
-          </div>
           </div>
         )}
       </main>

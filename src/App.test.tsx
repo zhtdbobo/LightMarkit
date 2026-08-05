@@ -9,7 +9,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
-import { fileRead, fileWrite, getCurrentFile } from './utils/fileApi'
+import { fileRead, fileWrite, getCurrentFile, markFrontendReady } from './utils/fileApi'
 import packageInfo from '../package.json'
 
 // Mock Tauri APIs
@@ -49,6 +49,7 @@ vi.mock('./utils/fileApi', () => ({
   fileRead: vi.fn(),
   fileWrite: vi.fn(),
   getCurrentFile: vi.fn().mockResolvedValue(null),
+  markFrontendReady: vi.fn().mockResolvedValue(undefined),
   setCurrentFile: vi.fn(),
   watchCurrentFile: vi.fn().mockResolvedValue(undefined),
 }))
@@ -79,6 +80,7 @@ describe('App', () => {
     vi.mocked(save).mockResolvedValue(null)
     vi.mocked(scanFolder).mockResolvedValue([])
     vi.mocked(getCurrentFile).mockResolvedValue(null)
+    vi.mocked(markFrontendReady).mockResolvedValue(undefined)
     vi.mocked(fileRead).mockResolvedValue('')
     vi.mocked(check).mockResolvedValue(null)
     vi.mocked(relaunch).mockResolvedValue(undefined)
@@ -339,6 +341,10 @@ describe('App', () => {
       '打开文件 (⌘O)'
     )
     expect(screen.getByRole('button', { name: '撤销' })).toHaveAttribute('title', '撤销上一步 (⌘Z)')
+    expect(screen.getByRole('button', { name: '切换到预览' })).toHaveAttribute(
+      'title',
+      '切换到预览 (⌘/)'
+    )
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(
@@ -512,10 +518,24 @@ describe('App', () => {
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true, multiple: true }))
   })
 
-  it('应该默认为所见即所得编辑模式', () => {
+  it('应该默认为纯 Markdown 源码编辑模式', () => {
     render(<App />)
-    expect(screen.getByTestId('editor-container')).toHaveClass('wysiwyg-editor')
+    expect(screen.getByTestId('editor-container')).toHaveClass('source-editor')
+    expect(screen.getByTestId('editor-container')).not.toHaveClass('wysiwyg-editor')
     expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
+  })
+
+  it('应该在内容区提供带快捷键提示的编辑预览切换入口', () => {
+    render(<App />)
+
+    const previewButton = screen.getByRole('button', { name: '切换到预览' })
+    expect(previewButton).toHaveTextContent('预览')
+    expect(previewButton).toHaveTextContent('Ctrl+/')
+
+    fireEvent.click(previewButton)
+
+    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '切换到编辑' })).toHaveTextContent('Ctrl+/')
   })
 
   it('应该只使用单栏并且不渲染分割条', () => {
@@ -529,7 +549,7 @@ describe('App', () => {
   it('应该通过 Ctrl+/ 切换视图模式', () => {
     render(<App />)
 
-    // 初始为所见即所得编辑模式
+    // 初始为源码编辑模式
     expect(screen.getByTestId('editor-container')).toBeInTheDocument()
     expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
 
@@ -538,13 +558,13 @@ describe('App', () => {
     expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
     expect(screen.getByTestId('preview-container')).toBeInTheDocument()
 
-    // 第二次按 Ctrl+/ 回到所见即所得编辑模式
+    // 第二次按 Ctrl+/ 回到源码编辑模式
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
     expect(screen.getByTestId('editor-container')).toBeInTheDocument()
     expect(screen.queryByTestId('preview-container')).not.toBeInTheDocument()
   })
 
-  it('切换编辑和预览模式时不应该重写未修改的文件', async () => {
+  it('编辑器聚焦时切换预览不应该插入 HTML 注释或重写文件', async () => {
     vi.mocked(getCurrentFile).mockResolvedValue('C:\\notes\\unchanged.md')
     vi.mocked(fileRead).mockResolvedValue('# 未修改')
     render(<App />)
@@ -552,10 +572,17 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('未修改')).toBeInTheDocument())
     vi.mocked(fileWrite).mockClear()
 
-    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    const editorContent = screen
+      .getByTestId('editor-container')
+      .querySelector<HTMLElement>('.cm-content')
+    expect(editorContent).not.toBeNull()
+
+    fireEvent.keyDown(editorContent as HTMLElement, { key: '/', ctrlKey: true })
     expect(screen.getByTestId('preview-container')).toBeInTheDocument()
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
     expect(screen.getByTestId('editor-container')).toBeInTheDocument()
+    expect(screen.getByTestId('editor-container')).not.toHaveTextContent('<!--')
+    expect(screen.getByTestId('editor-container')).not.toHaveTextContent('-->')
 
     await new Promise((resolve) => window.setTimeout(resolve, 550))
     expect(fileWrite).not.toHaveBeenCalled()

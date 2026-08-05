@@ -406,11 +406,52 @@ body,
 }
 
 .editor-preview-surface {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.view-mode-switch {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 20;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 9px 4px 11px;
+  color: #4b5563;
+  font: inherit;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #d8dee8;
+  border-radius: 7px;
+  box-shadow: 0 2px 8px rgba(31, 41, 55, 0.08);
+  cursor: pointer;
+}
+
+.view-mode-switch:hover,
+.view-mode-switch:focus-visible {
+  color: #174ea6;
+  background: #f4f8ff;
+  border-color: #9fc2f1;
+  outline: none;
+}
+
+.view-mode-switch kbd {
+  padding: 1px 5px;
+  color: #6b7280;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-bottom-width: 2px;
+  border-radius: 4px;
 }
 
 .outline-sidebar {
@@ -1208,6 +1249,26 @@ body,
 
   .editor-preview-container {
     background-color: #3e3e42;
+  }
+
+  .view-mode-switch {
+    color: #d4d4d4;
+    background: rgba(37, 37, 38, 0.94);
+    border-color: #4b4b4d;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  .view-mode-switch:hover,
+  .view-mode-switch:focus-visible {
+    color: #ffffff;
+    background: #2f3f52;
+    border-color: #5d85b5;
+  }
+
+  .view-mode-switch kbd {
+    color: #c7c7c7;
+    background: #333333;
+    border-color: #5a5a5a;
   }
 
   .outline-sidebar {

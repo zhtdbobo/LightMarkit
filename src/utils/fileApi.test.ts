@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fileRead, fileWrite, getCurrentFile, setCurrentFile } from './fileApi'
+import { fileRead, fileWrite, getCurrentFile, markFrontendReady, setCurrentFile } from './fileApi'
 
 // Mock Tauri API
 vi.mock('@tauri-apps/api/core', () => ({
@@ -88,6 +88,16 @@ describe('fileApi', () => {
       await setCurrentFile(null)
 
       expect(mockedInvoke).toHaveBeenCalledWith('set_current_file', { path: null })
+    })
+  })
+
+  describe('markFrontendReady', () => {
+    it('应该通知后端前端文件打开监听器已经就绪', async () => {
+      mockedInvoke.mockResolvedValueOnce(undefined)
+
+      await markFrontendReady()
+
+      expect(mockedInvoke).toHaveBeenCalledWith('mark_frontend_ready')
     })
   })
 })

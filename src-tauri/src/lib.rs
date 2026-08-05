@@ -3,7 +3,7 @@ use encoding_rs::{Encoding, BIG5, GBK, SHIFT_JIS, UTF_16BE, UTF_16LE, WINDOWS_12
 use headless_chrome::{types::PrintToPdfOptions, Browser, LaunchOptions};
 use notify::{recommended_watcher, EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,48 @@ struct FileState {
     current_file: Mutex<Option<PathBuf>>,
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
     watched_path: Mutex<Option<PathBuf>>,
+    open_file_delivery: Mutex<OpenFileDeliveryState>,
+    file_snapshots: Mutex<HashMap<PathBuf, MarkdownFileSnapshot>>,
+}
+
+#[derive(Default)]
+struct OpenFileDeliveryState {
+    frontend_ready: bool,
+    pending: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy)]
+enum MarkdownEncoding {
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    Legacy(&'static Encoding),
+}
+
+#[derive(Clone, Copy)]
+enum LineEnding {
+    Lf,
+    Crlf,
+    Cr,
+}
+
+#[derive(Clone, Copy)]
+struct MarkdownFileFormat {
+    encoding: MarkdownEncoding,
+    has_bom: bool,
+    line_ending: LineEnding,
+}
+
+struct DecodedMarkdown {
+    content: String,
+    format: MarkdownFileFormat,
+}
+
+struct MarkdownFileSnapshot {
+    original_content: String,
+    original_bytes: Vec<u8>,
+    format: MarkdownFileFormat,
+    last_written_bytes: Option<Vec<u8>>,
 }
 
 fn same_file_path(left: &Path, right: &Path) -> bool {
@@ -54,8 +96,25 @@ struct FileInfo {
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_SCAN_DEPTH: usize = 20;
 const SYSTEM_MENU_ACTION_EVENT: &str = "system-menu-action";
-#[cfg(target_os = "macos")]
 const OPEN_FILE_REQUESTED_EVENT: &str = "open-file-requested";
+
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn deliver_or_queue_open_file(
+    delivery: &mut OpenFileDeliveryState,
+    path: PathBuf,
+) -> Option<PathBuf> {
+    if delivery.frontend_ready {
+        Some(path)
+    } else {
+        delivery.pending = Some(path);
+        None
+    }
+}
+
+fn mark_open_file_frontend_ready(delivery: &mut OpenFileDeliveryState) -> Option<PathBuf> {
+    delivery.frontend_ready = true;
+    delivery.pending.take()
+}
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -85,12 +144,21 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
             *current_file = Some(path.clone());
         }
 
+        let ready_path = app
+            .state::<FileState>()
+            .open_file_delivery
+            .lock()
+            .ok()
+            .and_then(|mut delivery| deliver_or_queue_open_file(&mut delivery, path));
+
         show_main_window(app);
-        let _ = app.emit_to(
-            "main",
-            OPEN_FILE_REQUESTED_EVENT,
-            path.to_string_lossy().into_owned(),
-        );
+        if let Some(path) = ready_path {
+            let _ = app.emit_to(
+                "main",
+                OPEN_FILE_REQUESTED_EVENT,
+                path.to_string_lossy().into_owned(),
+            );
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -202,37 +270,168 @@ fn decode_with_encoding(bytes: &[u8], encoding: &'static Encoding) -> Result<Str
     }
 }
 
-fn decode_markdown_bytes(bytes: &[u8]) -> Result<String, String> {
-    if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
-        return String::from_utf8(bytes[3..].to_vec())
-            .map(strip_unicode_bom)
-            .map_err(|e| format!("Failed to decode UTF-8 file: {}", e));
-    }
+fn detect_line_ending(content: &str) -> LineEnding {
+    let bytes = content.as_bytes();
+    let mut crlf_count = 0;
+    let mut lf_count = 0;
+    let mut cr_count = 0;
+    let mut index = 0;
 
-    if bytes.starts_with(&[0xff, 0xfe]) {
-        return decode_with_encoding(&bytes[2..], UTF_16LE)
-            .map(strip_unicode_bom)
-            .map_err(|_| "Failed to decode UTF-16 LE file".to_string());
-    }
-
-    if bytes.starts_with(&[0xfe, 0xff]) {
-        return decode_with_encoding(&bytes[2..], UTF_16BE)
-            .map(strip_unicode_bom)
-            .map_err(|_| "Failed to decode UTF-16 BE file".to_string());
-    }
-
-    if let Ok(content) = std::str::from_utf8(bytes) {
-        return Ok(strip_unicode_bom(content.to_string()));
-    }
-
-    for encoding in [GBK, BIG5, SHIFT_JIS, WINDOWS_1252] {
-        if let Ok(content) = decode_with_encoding(bytes, encoding) {
-            return Ok(strip_unicode_bom(content));
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\r' if bytes.get(index + 1) == Some(&b'\n') => {
+                crlf_count += 1;
+                index += 2;
+            }
+            b'\r' => {
+                cr_count += 1;
+                index += 1;
+            }
+            b'\n' => {
+                lf_count += 1;
+                index += 1;
+            }
+            _ => index += 1,
         }
     }
 
-    let (decoded, _, _) = GBK.decode(bytes);
-    Ok(strip_unicode_bom(decoded.into_owned()))
+    if crlf_count >= lf_count && crlf_count >= cr_count && crlf_count > 0 {
+        LineEnding::Crlf
+    } else if cr_count > lf_count && cr_count > 0 {
+        LineEnding::Cr
+    } else {
+        LineEnding::Lf
+    }
+}
+
+fn normalize_line_endings(content: &str) -> String {
+    content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn decode_markdown_document(bytes: &[u8]) -> Result<DecodedMarkdown, String> {
+    let (decoded, encoding, has_bom) = if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        (
+            String::from_utf8(bytes[3..].to_vec())
+                .map(strip_unicode_bom)
+                .map_err(|error| format!("Failed to decode UTF-8 file: {}", error))?,
+            MarkdownEncoding::Utf8,
+            true,
+        )
+    } else if bytes.starts_with(&[0xff, 0xfe]) {
+        (
+            decode_with_encoding(&bytes[2..], UTF_16LE)
+                .map(strip_unicode_bom)
+                .map_err(|_| "Failed to decode UTF-16 LE file".to_string())?,
+            MarkdownEncoding::Utf16Le,
+            true,
+        )
+    } else if bytes.starts_with(&[0xfe, 0xff]) {
+        (
+            decode_with_encoding(&bytes[2..], UTF_16BE)
+                .map(strip_unicode_bom)
+                .map_err(|_| "Failed to decode UTF-16 BE file".to_string())?,
+            MarkdownEncoding::Utf16Be,
+            true,
+        )
+    } else if let Ok(content) = std::str::from_utf8(bytes) {
+        (
+            strip_unicode_bom(content.to_string()),
+            MarkdownEncoding::Utf8,
+            false,
+        )
+    } else {
+        let mut legacy_result = None;
+
+        for encoding in [GBK, BIG5, SHIFT_JIS, WINDOWS_1252] {
+            if let Ok(content) = decode_with_encoding(bytes, encoding) {
+                legacy_result = Some((
+                    strip_unicode_bom(content),
+                    MarkdownEncoding::Legacy(encoding),
+                    false,
+                ));
+                break;
+            }
+        }
+
+        legacy_result.unwrap_or_else(|| {
+            let (content, _, _) = GBK.decode(bytes);
+            (
+                strip_unicode_bom(content.into_owned()),
+                MarkdownEncoding::Legacy(GBK),
+                false,
+            )
+        })
+    };
+
+    let line_ending = detect_line_ending(&decoded);
+    Ok(DecodedMarkdown {
+        content: normalize_line_endings(&decoded),
+        format: MarkdownFileFormat {
+            encoding,
+            has_bom,
+            line_ending,
+        },
+    })
+}
+
+fn apply_line_ending(content: &str, line_ending: LineEnding) -> String {
+    let normalized = normalize_line_endings(content);
+
+    match line_ending {
+        LineEnding::Lf => normalized,
+        LineEnding::Crlf => normalized.replace('\n', "\r\n"),
+        LineEnding::Cr => normalized.replace('\n', "\r"),
+    }
+}
+
+fn encode_markdown_content(content: &str, format: MarkdownFileFormat) -> Vec<u8> {
+    let formatted = apply_line_ending(content, format.line_ending);
+    let mut encoded = match format.encoding {
+        MarkdownEncoding::Utf8 => formatted.into_bytes(),
+        MarkdownEncoding::Utf16Le => formatted
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect(),
+        MarkdownEncoding::Utf16Be => formatted
+            .encode_utf16()
+            .flat_map(u16::to_be_bytes)
+            .collect(),
+        MarkdownEncoding::Legacy(encoding) => {
+            let (bytes, _, had_errors) = encoding.encode(&formatted);
+            if had_errors {
+                formatted.into_bytes()
+            } else {
+                bytes.into_owned()
+            }
+        }
+    };
+
+    if format.has_bom {
+        let bom: &[u8] = match format.encoding {
+            MarkdownEncoding::Utf8 => &[0xef, 0xbb, 0xbf],
+            MarkdownEncoding::Utf16Le => &[0xff, 0xfe],
+            MarkdownEncoding::Utf16Be => &[0xfe, 0xff],
+            MarkdownEncoding::Legacy(_) => &[],
+        };
+        let mut with_bom = Vec::with_capacity(bom.len() + encoded.len());
+        with_bom.extend_from_slice(bom);
+        with_bom.append(&mut encoded);
+        with_bom
+    } else {
+        encoded
+    }
+}
+
+fn bytes_for_snapshot(content: &str, snapshot: &MarkdownFileSnapshot) -> Vec<u8> {
+    if content == snapshot.original_content {
+        snapshot.original_bytes.clone()
+    } else {
+        encode_markdown_content(content, snapshot.format)
+    }
+}
+
+fn file_snapshot_key(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn escape_html_text(value: &str) -> String {
@@ -275,7 +474,7 @@ fn initial_file_from_args() -> Option<PathBuf> {
 }
 
 #[tauri::command]
-async fn file_read(path: String) -> Result<String, String> {
+async fn file_read(path: String, state: State<'_, FileState>) -> Result<String, String> {
     let path = PathBuf::from(path);
     ensure_markdown_file_path(&path)?;
 
@@ -284,21 +483,83 @@ async fn file_read(path: String) -> Result<String, String> {
     }
 
     let bytes = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-    decode_markdown_bytes(&bytes)
+    let decoded = decode_markdown_document(&bytes)?;
+    let key = file_snapshot_key(&path);
+    let mut snapshots = state
+        .file_snapshots
+        .lock()
+        .map_err(|_| "Failed to lock Markdown file snapshots".to_string())?;
+    let is_own_write = snapshots
+        .get(&key)
+        .and_then(|snapshot| snapshot.last_written_bytes.as_deref())
+        == Some(bytes.as_slice());
+
+    if !is_own_write {
+        snapshots.insert(
+            key,
+            MarkdownFileSnapshot {
+                original_content: decoded.content.clone(),
+                original_bytes: bytes,
+                format: decoded.format,
+                last_written_bytes: None,
+            },
+        );
+    }
+
+    Ok(decoded.content)
 }
 
 #[tauri::command]
-async fn file_write(path: String, content: String) -> Result<(), String> {
+async fn file_write(
+    path: String,
+    content: String,
+    state: State<'_, FileState>,
+) -> Result<(), String> {
     let path = PathBuf::from(path);
     ensure_markdown_file_path(&path)?;
+    let key = file_snapshot_key(&path);
+    let bytes = {
+        let snapshots = state
+            .file_snapshots
+            .lock()
+            .map_err(|_| "Failed to lock Markdown file snapshots".to_string())?;
+
+        snapshots.get(&key).map_or_else(
+            || content.as_bytes().to_vec(),
+            |snapshot| bytes_for_snapshot(&content, snapshot),
+        )
+    };
 
     let temp_path = format!("{}.tmp", path.to_string_lossy());
-    fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
+    fs::write(&temp_path, &bytes).map_err(|e| format!("Failed to write temp file: {}", e))?;
 
-    fs::rename(&temp_path, path).map_err(|e| {
+    fs::rename(&temp_path, &path).map_err(|e| {
         let _ = fs::remove_file(&temp_path);
         format!("Failed to rename temp file: {}", e)
     })?;
+
+    let mut snapshots = state
+        .file_snapshots
+        .lock()
+        .map_err(|_| "Failed to lock Markdown file snapshots".to_string())?;
+
+    if let Some(snapshot) = snapshots.get_mut(&key) {
+        snapshot.last_written_bytes = Some(bytes);
+    } else {
+        snapshots.insert(
+            file_snapshot_key(&path),
+            MarkdownFileSnapshot {
+                original_content: normalize_line_endings(&content),
+                original_bytes: bytes,
+                format: MarkdownFileFormat {
+                    encoding: MarkdownEncoding::Utf8,
+                    has_bom: false,
+                    line_ending: detect_line_ending(&content),
+                },
+                last_written_bytes: None,
+            },
+        );
+    }
 
     Ok(())
 }
@@ -351,8 +612,47 @@ async fn get_current_file(state: State<'_, FileState>) -> Result<Option<String>,
 
 #[tauri::command]
 async fn set_current_file(path: Option<String>, state: State<'_, FileState>) -> Result<(), String> {
-    let mut current = state.current_file.lock().unwrap();
-    *current = path.map(PathBuf::from);
+    let next_path = path.map(PathBuf::from);
+    {
+        let mut current = state
+            .current_file
+            .lock()
+            .map_err(|_| "Failed to lock current file state".to_string())?;
+        *current = next_path.clone();
+    }
+
+    let next_key = next_path.as_deref().map(file_snapshot_key);
+    state
+        .file_snapshots
+        .lock()
+        .map_err(|_| "Failed to lock Markdown file snapshots".to_string())?
+        .retain(|key, _| next_key.as_ref() == Some(key));
+    Ok(())
+}
+
+#[tauri::command]
+async fn mark_frontend_ready(
+    app: tauri::AppHandle,
+    state: State<'_, FileState>,
+) -> Result<(), String> {
+    let pending_path = {
+        let mut delivery = state
+            .open_file_delivery
+            .lock()
+            .map_err(|_| "Failed to lock open file delivery state".to_string())?;
+        mark_open_file_frontend_ready(&mut delivery)
+    };
+
+    if let Some(path) = pending_path {
+        show_main_window(&app);
+        app.emit_to(
+            "main",
+            OPEN_FILE_REQUESTED_EVENT,
+            path.to_string_lossy().into_owned(),
+        )
+        .map_err(|error| format!("Failed to deliver pending open file request: {}", error))?;
+    }
+
     Ok(())
 }
 
@@ -1183,6 +1483,8 @@ pub fn run() {
             current_file: Mutex::new(initial_file),
             watcher: Mutex::new(None),
             watched_path: Mutex::new(None),
+            open_file_delivery: Mutex::new(OpenFileDeliveryState::default()),
+            file_snapshots: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             file_read,
@@ -1190,6 +1492,7 @@ pub fn run() {
             read_image_as_data_url,
             get_current_file,
             set_current_file,
+            mark_frontend_ready,
             watch_current_file,
             scan_folder,
             export_html,
@@ -1287,18 +1590,90 @@ mod tests {
     }
 
     #[test]
+    fn queues_finder_open_request_until_frontend_is_ready() {
+        let mut delivery = OpenFileDeliveryState::default();
+        let path = PathBuf::from("/Users/test/Documents/draft.md");
+
+        assert_eq!(
+            deliver_or_queue_open_file(&mut delivery, path.clone()),
+            None
+        );
+        assert_eq!(mark_open_file_frontend_ready(&mut delivery), Some(path));
+        assert!(delivery.frontend_ready);
+        assert!(delivery.pending.is_none());
+    }
+
+    #[test]
+    fn delivers_finder_open_request_immediately_after_frontend_is_ready() {
+        let mut delivery = OpenFileDeliveryState::default();
+        assert_eq!(mark_open_file_frontend_ready(&mut delivery), None);
+
+        let path = PathBuf::from("/Users/test/Documents/draft.md");
+        assert_eq!(
+            deliver_or_queue_open_file(&mut delivery, path.clone()),
+            Some(path)
+        );
+        assert!(delivery.pending.is_none());
+    }
+
+    #[test]
     fn decodes_utf8_bom_markdown_bytes() {
         let content =
-            decode_markdown_bytes(&[0xef, 0xbb, 0xbf, b'#', b' ', b'N', b'o', b't', b'e']).unwrap();
+            decode_markdown_document(&[0xef, 0xbb, 0xbf, b'#', b' ', b'N', b'o', b't', b'e'])
+                .unwrap()
+                .content;
 
         assert_eq!(content, "# Note");
     }
 
     #[test]
     fn decodes_gbk_markdown_bytes() {
-        let content = decode_markdown_bytes(&[0x23, 0x20, 0xb1, 0xea, 0xcc, 0xe2]).unwrap();
+        let content = decode_markdown_document(&[0x23, 0x20, 0xb1, 0xea, 0xcc, 0xe2])
+            .unwrap()
+            .content;
 
         assert_eq!(content, "# 标题");
+    }
+
+    #[test]
+    fn preserves_bom_and_crlf_when_saving_changes() {
+        let original = b"\xef\xbb\xbf# Title\r\n\r\nBody\r\n".to_vec();
+        let decoded = decode_markdown_document(&original).unwrap();
+        let changed = encode_markdown_content("# Title\n\nChanged body\n", decoded.format);
+
+        assert!(changed.starts_with(&[0xef, 0xbb, 0xbf]));
+        assert_eq!(
+            std::str::from_utf8(&changed[3..]).unwrap(),
+            "# Title\r\n\r\nChanged body\r\n"
+        );
+    }
+
+    #[test]
+    fn restores_original_bytes_when_edit_is_fully_reverted() {
+        let original = b"\xef\xbb\xbf# Title\r\n\r\nBody\r\n".to_vec();
+        let decoded = decode_markdown_document(&original).unwrap();
+        let snapshot = MarkdownFileSnapshot {
+            original_content: decoded.content.clone(),
+            original_bytes: original.clone(),
+            format: decoded.format,
+            last_written_bytes: None,
+        };
+
+        assert_eq!(bytes_for_snapshot(&decoded.content, &snapshot), original);
+    }
+
+    #[test]
+    fn restores_original_legacy_encoding_bytes_after_reverted_edit() {
+        let original = vec![0x23, 0x20, 0xb1, 0xea, 0xcc, 0xe2];
+        let decoded = decode_markdown_document(&original).unwrap();
+        let snapshot = MarkdownFileSnapshot {
+            original_content: decoded.content.clone(),
+            original_bytes: original.clone(),
+            format: decoded.format,
+            last_written_bytes: None,
+        };
+
+        assert_eq!(bytes_for_snapshot(&decoded.content, &snapshot), original);
     }
 
     #[test]

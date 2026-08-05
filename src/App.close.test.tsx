@@ -23,6 +23,7 @@ vi.mock('./utils/fileApi', () => ({
   fileRead: vi.fn(),
   fileWrite: vi.fn(),
   getCurrentFile: vi.fn(),
+  markFrontendReady: vi.fn().mockResolvedValue(undefined),
   setCurrentFile: vi.fn(),
   watchCurrentFile: vi.fn().mockResolvedValue(undefined),
 }))

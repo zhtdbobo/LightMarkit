@@ -45,8 +45,13 @@
 
 .editor-wrapper.source-editor .cm-content {
   max-width: none;
-  padding: 12px;
+  padding: 44px 24px max(120px, calc(100vh - 80px));
   margin: 0;
+}
+
+.editor-wrapper.source-editor:not(.full-width-editor) .cm-content {
+  max-width: 920px;
+  margin: 0 auto;
 }
 
 .editor-wrapper.wysiwyg-editor .cm-gutters {

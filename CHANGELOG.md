@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-05
+
+### 发布
+
+- 发布 Windows x64 NSIS 与 macOS Universal DMG，并继续提供两个平台的签名自动更新包。
+
+### 改进
+
+- 编辑视图改为纯 Markdown 源码编辑，预览保持为独立界面，并在内容区提供带平台快捷键提示的切换入口。
+
+### 修复
+
+- 移除编辑区的所见即所得替换装饰，避免标题视觉位置与真实光标位置偏离及意外插入标记。
+- 在捕获阶段处理编辑/预览快捷键，避免编辑器获得焦点时将 `Ctrl+/` 或 `⌘/` 同时解释为 HTML 注释命令并插入 `<!-- -->`。
+- 保存时保留 Markdown 文件原有的编码、BOM 和换行格式；添加文字后再完整删除会恢复原始字节，避免 VS Code 的 Git 出现无内容变化的 diff。
+- macOS 会暂存前端就绪前由访达发送的打开文件请求，就绪后再补发，修复冷启动时偶发无法打开目标 Markdown 文件的问题。
+
 ## [0.4.2] - 2026-08-04
 
 ### 发布
@@ -165,7 +182,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zhtdbobo/LightMarkit/compare/v0.3.5...v0.4.0

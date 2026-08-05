@@ -40,3 +40,11 @@ export async function setCurrentFile(path: string | null): Promise<void> {
 export async function watchCurrentFile(): Promise<void> {
   await invoke('watch_current_file')
 }
+
+/**
+ * 通知后端前端事件监听器已经就绪。
+ * macOS 会在此时补发应用启动早期由访达送达的打开文件请求。
+ */
+export async function markFrontendReady(): Promise<void> {
+  await invoke('mark_frontend_ready')
+}
