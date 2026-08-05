@@ -179,6 +179,51 @@ describe('App', () => {
     expect(screen.getByTestId('preview-container')).toHaveClass('full-width-preview')
   })
 
+  it('应该同步调整并保存编辑器与预览的字体字号', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+
+    expect(screen.getByRole('heading', { name: '字体与字号' })).toBeInTheDocument()
+    const contentFont = screen.getByRole('combobox', { name: '编辑与预览字体' })
+    const contentSize = screen.getByRole('slider', { name: '编辑与预览字号' })
+
+    expect(contentFont).toHaveValue('system')
+    expect(contentSize).toHaveValue('16')
+    expect(screen.getByText('Ctrl++')).toBeInTheDocument()
+    expect(screen.getByText('Ctrl+-')).toBeInTheDocument()
+    expect(screen.getByText('Ctrl+0')).toBeInTheDocument()
+
+    fireEvent.change(contentFont, { target: { value: 'serif' } })
+    fireEvent.change(contentSize, { target: { value: '20' } })
+
+    const stored = JSON.parse(localStorage.getItem('lightmarkit.app-state.v1') ?? '{}') as {
+      typography?: Record<string, unknown>
+    }
+    expect(stored.typography).toEqual({
+      fontFamily: 'serif',
+      fontSize: 20,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+
+    const contentArea = document.querySelector('.main-content') as HTMLElement
+    expect(contentArea.style.getPropertyValue('--content-font-family')).toContain('Noto Serif SC')
+    expect(contentArea.style.getPropertyValue('--content-font-size')).toBe('20px')
+
+    expect(fireEvent.keyDown(window, { key: '=', ctrlKey: true })).toBe(false)
+    expect(contentArea.style.getPropertyValue('--content-font-size')).toBe('21px')
+    expect(fireEvent.keyDown(window, { key: '-', ctrlKey: true })).toBe(false)
+    expect(contentArea.style.getPropertyValue('--content-font-size')).toBe('20px')
+
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(screen.getByTestId('preview-container')).toBeInTheDocument()
+    expect(contentArea.style.getPropertyValue('--content-font-size')).toBe('20px')
+
+    expect(fireEvent.keyDown(window, { key: '0', ctrlKey: true })).toBe(false)
+    expect(contentArea.style.getPropertyValue('--content-font-size')).toBe('16px')
+  })
+
   it('应该忽略旧版宽度字段并默认使用铺满模式', () => {
     localStorage.setItem('lightmarkit.app-state.v1', JSON.stringify({ isEditorFullWidth: false }))
 

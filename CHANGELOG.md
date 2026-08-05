@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-05
+
+### 发布
+
+- 发布 Windows x64 NSIS 与 macOS Universal DMG，并继续提供两个平台的签名自动更新包。
+
+### 新增
+
+- 在设置的“编辑”分类中新增字体与字号选项，支持系统默认、无衬线、衬线和等宽字体，以及 12–28px 字号。
+- 新增内容级缩放快捷键：Windows/Linux 使用 `Ctrl++`、`Ctrl+-` 和 `Ctrl+0`，macOS 使用对应的 `⌘` 组合键。
+
+### 改进
+
+- 源码编辑与预览现在共享同一套字体和字号设置，切换视图时保持一致；排版偏好会自动保存。
+- 缩放快捷键只调整文档内容，不改变菜单、侧栏和设置界面的尺寸。
+
+### 构建
+
+- 自动发布的 Release 标题仅使用版本标签，不再额外添加 `LightMarkit` 前缀。
+
 ## [0.4.3] - 2026-08-05
 
 ### 发布
@@ -182,7 +202,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.0...v0.4.1

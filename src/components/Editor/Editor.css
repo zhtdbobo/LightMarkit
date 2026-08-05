@@ -39,8 +39,17 @@
 }
 
 .editor-wrapper.source-editor {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
+  font-family: var(
+    --content-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Noto Sans',
+    Helvetica,
+    Arial,
+    sans-serif
+  );
+  font-size: var(--content-font-size, 16px);
 }
 
 .editor-wrapper.source-editor .cm-content {

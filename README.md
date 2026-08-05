@@ -1,10 +1,10 @@
 # LightMarkit
 
-<!-- release-version: 0.4.3 -->
+<!-- release-version: 0.4.4 -->
 
 LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌面 Markdown 编辑器，支持 Windows 和 macOS。
 
-当前发布版本：[v0.4.3](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.3)
+当前发布版本：[v0.4.4](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.4)
 
 ## 功能
 
@@ -24,6 +24,7 @@ LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌
 - 支持相对路径、绝对路径和 `file://` 形式的本地图片。
 - 支持 Mermaid 图表渲染。
 - 提供 Markdown 源码编辑和纯预览两种单栏视图，内容区右上角会提示 Windows 的 `Ctrl+/` 或 macOS 的 `⌘/` 切换快捷键，并保持当前阅读位置和滚动条布局稳定。
+- 在设置中统一调整源码与预览的字体和字号；使用 `Ctrl/⌘++`、`Ctrl/⌘+-` 缩放文档内容，使用 `Ctrl/⌘+0` 恢复默认字号，不影响应用菜单和侧栏。
 - 预览代码块保留原始缩进和长行横向滚动，并支持复制与折叠；折叠后显示语言、首个非空代码行和总行数摘要。
 
 ### 文档组织

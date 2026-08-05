@@ -649,6 +649,10 @@ body,
   box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
 }
 
+.settings-card + .settings-card {
+  margin-top: 16px;
+}
+
 .settings-card-heading h3 {
   font-size: 17px;
   line-height: 24px;
@@ -734,6 +738,119 @@ body,
 .settings-width-preview.reading i {
   width: 58%;
   margin: 0 auto;
+}
+
+.settings-typography-options {
+  margin-top: 18px;
+  border: 1px solid #e4e7ec;
+  border-radius: 9px;
+}
+
+.settings-typography-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.8fr) minmax(190px, 1fr);
+  gap: 20px;
+  align-items: end;
+  padding: 18px;
+}
+
+.settings-typography-row + .settings-typography-row {
+  border-top: 1px solid #e4e7ec;
+}
+
+.settings-typography-label strong,
+.settings-typography-label small,
+.settings-field > span:first-child {
+  display: block;
+}
+
+.settings-typography-label strong {
+  color: #101828;
+  font-size: 14px;
+}
+
+.settings-typography-label small {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.settings-field {
+  min-width: 0;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-field select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 0 34px 0 10px;
+  margin-top: 6px;
+  color: #344054;
+  font-size: 13px;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+}
+
+.settings-field select:focus-visible,
+.settings-font-size-control input:focus-visible {
+  border-color: #1570ef;
+  outline: 2px solid rgb(21 112 239 / 18%);
+  outline-offset: 1px;
+}
+
+.settings-font-size-control {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 44px;
+  gap: 10px;
+  align-items: center;
+  height: 36px;
+  margin-top: 6px;
+}
+
+.settings-font-size-control input {
+  width: 100%;
+  margin: 0;
+  accent-color: #1570ef;
+}
+
+.settings-font-size-control output {
+  color: #344054;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.settings-shortcut-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 12px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.settings-shortcut-hint span {
+  margin-left: 6px;
+}
+
+.settings-shortcut-hint kbd {
+  min-width: 38px;
+  padding: 2px 6px;
+  color: #475467;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: #f8fafc;
+  border: 1px solid #d0d5dd;
+  border-bottom-width: 2px;
+  border-radius: 5px;
 }
 
 .settings-about-card .about-dialog-hero {
@@ -1039,6 +1156,12 @@ body,
     padding: 18px;
   }
 
+  .settings-typography-row {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 14px;
+  }
+
   .about-dialog-backdrop {
     padding: 12px;
   }
@@ -1065,6 +1188,15 @@ body,
   .settings-detail {
     padding-right: 28px;
     padding-left: 28px;
+  }
+
+  .settings-typography-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .settings-typography-label {
+    grid-column: 1 / -1;
   }
 
   .app-header {
@@ -1165,14 +1297,18 @@ body,
 
   .settings-content-header p,
   .settings-card-heading p,
-  .settings-width-card small {
+  .settings-width-card small,
+  .settings-typography-label small,
+  .settings-field,
+  .settings-shortcut-hint {
     color: #b8b8b8;
   }
 
   .settings-sidebar-header h1,
   .settings-content-header h2,
   .settings-card-heading h3,
-  .settings-width-card strong {
+  .settings-width-card strong,
+  .settings-typography-label strong {
     color: #ffffff;
   }
 
@@ -1197,9 +1333,26 @@ body,
   }
 
   .settings-card,
-  .settings-width-card {
+  .settings-width-card,
+  .settings-field select {
     background: #252526;
     border-color: #3e3e42;
+  }
+
+  .settings-typography-options,
+  .settings-typography-row + .settings-typography-row {
+    border-color: #3e3e42;
+  }
+
+  .settings-field select,
+  .settings-font-size-control output,
+  .settings-shortcut-hint kbd {
+    color: #d4d4d4;
+  }
+
+  .settings-shortcut-hint kbd {
+    background: #1e1e1e;
+    border-color: #4a4d4f;
   }
 
   .settings-close-button,

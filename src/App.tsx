@@ -43,6 +43,7 @@ type ViewMode = 'edit' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
 type ToolbarMenu = 'file' | 'export' | null
 type ExportExtension = 'html' | 'pdf' | 'md'
+type ContentFontFamily = 'system' | 'sans' | 'serif' | 'monospace'
 type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
@@ -60,6 +61,70 @@ const MAX_SIDEBAR_WIDTH = 520
 const MIN_OUTLINE_WIDTH = 220
 const MAX_OUTLINE_WIDTH = 480
 const APP_LAYOUT_STORAGE_KEY = 'lightmarkit.layout.v1'
+const MIN_CONTENT_FONT_SIZE = 12
+const MAX_CONTENT_FONT_SIZE = 28
+
+interface TypographyPreferences {
+  fontFamily: ContentFontFamily
+  fontSize: number
+}
+
+const DEFAULT_TYPOGRAPHY_PREFERENCES: TypographyPreferences = {
+  fontFamily: 'system',
+  fontSize: 16,
+}
+
+const FONT_FAMILY_OPTIONS: Array<{ value: ContentFontFamily; label: string }> = [
+  { value: 'system', label: '系统默认' },
+  { value: 'sans', label: '无衬线字体' },
+  { value: 'serif', label: '衬线字体' },
+  { value: 'monospace', label: '等宽字体' },
+]
+
+const CONTENT_FONT_STACKS: Record<ContentFontFamily, string> = {
+  system:
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Helvetica, Arial, sans-serif",
+  sans: "'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', Arial, sans-serif",
+  serif: "'Noto Serif SC', 'Songti SC', SimSun, Georgia, serif",
+  monospace: "SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace",
+}
+
+function isContentFontFamily(value: unknown): value is ContentFontFamily {
+  return FONT_FAMILY_OPTIONS.some((option) => option.value === value)
+}
+
+function normalizeFontSize(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+
+  return Math.round(Math.max(MIN_CONTENT_FONT_SIZE, Math.min(MAX_CONTENT_FONT_SIZE, value)))
+}
+
+function loadTypographyPreferences(): TypographyPreferences {
+  try {
+    const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
+    if (!raw) return DEFAULT_TYPOGRAPHY_PREFERENCES
+    const parsed = JSON.parse(raw) as {
+      typography?: Partial<TypographyPreferences> & {
+        previewFontFamily?: ContentFontFamily
+        previewFontSize?: number
+      }
+    }
+    const stored = parsed.typography
+    const storedFontFamily = stored?.fontFamily ?? stored?.previewFontFamily
+    const storedFontSize = stored?.fontSize ?? stored?.previewFontSize
+
+    return {
+      fontFamily: isContentFontFamily(storedFontFamily)
+        ? storedFontFamily
+        : DEFAULT_TYPOGRAPHY_PREFERENCES.fontFamily,
+      fontSize: normalizeFontSize(storedFontSize, DEFAULT_TYPOGRAPHY_PREFERENCES.fontSize),
+    }
+  } catch {
+    return DEFAULT_TYPOGRAPHY_PREFERENCES
+  }
+}
 
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
@@ -199,12 +264,82 @@ function getShortcutLabel(isMacOS: boolean, key: string, shift = false): string 
   return `Ctrl+${shift ? 'Shift+' : ''}${key}`
 }
 
+interface TypographyControlProps {
+  id: string
+  title: string
+  description: string
+  fontFamily: ContentFontFamily
+  fontSize: number
+  onFontFamilyChange: (fontFamily: ContentFontFamily) => void
+  onFontSizeChange: (fontSize: number) => void
+}
+
+function TypographyControl({
+  id,
+  title,
+  description,
+  fontFamily,
+  fontSize,
+  onFontFamilyChange,
+  onFontSizeChange,
+}: TypographyControlProps) {
+  const familyId = `${id}-font-family`
+  const sizeId = `${id}-font-size`
+
+  return (
+    <div className="settings-typography-row">
+      <div className="settings-typography-label">
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </div>
+      <label className="settings-field" htmlFor={familyId}>
+        <span>字体</span>
+        <select
+          id={familyId}
+          aria-label={`${title}字体`}
+          value={fontFamily}
+          style={{ fontFamily: CONTENT_FONT_STACKS[fontFamily] }}
+          onChange={(event) => onFontFamilyChange(event.target.value as ContentFontFamily)}
+        >
+          {FONT_FAMILY_OPTIONS.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              style={{ fontFamily: CONTENT_FONT_STACKS[option.value] }}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="settings-field settings-font-size-field" htmlFor={sizeId}>
+        <span>字号</span>
+        <span className="settings-font-size-control">
+          <input
+            id={sizeId}
+            type="range"
+            min={MIN_CONTENT_FONT_SIZE}
+            max={MAX_CONTENT_FONT_SIZE}
+            step="1"
+            aria-label={`${title}字号`}
+            value={fontSize}
+            onChange={(event) => onFontSizeChange(Number(event.target.value))}
+          />
+          <output htmlFor={sizeId}>{fontSize}px</output>
+        </span>
+      </label>
+    </div>
+  )
+}
+
 interface SettingsPageProps {
   fullWidth: boolean
+  typography: TypographyPreferences
   isMacOS: boolean
   updateStatus: UpdateStatus
   onClose: () => void
   onWidthChange: (fullWidth: boolean) => void
+  onTypographyChange: (preferences: Partial<TypographyPreferences>) => void
   onOpenRepository: () => void
   onCheckForUpdates: () => void
   onInstallUpdate: () => void
@@ -212,10 +347,12 @@ interface SettingsPageProps {
 
 function SettingsPage({
   fullWidth,
+  typography,
   isMacOS,
   updateStatus,
   onClose,
   onWidthChange,
+  onTypographyChange,
   onOpenRepository,
   onCheckForUpdates,
   onInstallUpdate,
@@ -270,7 +407,7 @@ function SettingsPage({
           <section className="settings-detail-section" aria-labelledby="editor-settings-title">
             <header className="settings-content-header">
               <h2 id="editor-settings-title">编辑</h2>
-              <p>设置编辑与预览内容的显示宽度。</p>
+              <p>设置编辑与预览内容的显示宽度、字体和字号。</p>
             </header>
             <div className="settings-card">
               <div className="settings-card-heading">
@@ -313,6 +450,29 @@ function SettingsPage({
                   </span>
                 </button>
               </div>
+            </div>
+            <div className="settings-card settings-typography-card">
+              <div className="settings-card-heading">
+                <h3>字体与字号</h3>
+                <p>源码编辑与预览使用同一套排版，切换视图时保持一致。</p>
+              </div>
+              <div className="settings-typography-options">
+                <TypographyControl
+                  id="content"
+                  title="编辑与预览"
+                  description="同步应用到 Markdown 源码和渲染后的正文"
+                  fontFamily={typography.fontFamily}
+                  fontSize={typography.fontSize}
+                  onFontFamilyChange={(fontFamily) => onTypographyChange({ fontFamily })}
+                  onFontSizeChange={(fontSize) => onTypographyChange({ fontSize })}
+                />
+              </div>
+              <p className="settings-shortcut-hint">
+                快捷缩放：<kbd>{isMacOS ? '⌘+' : 'Ctrl++'}</kbd>
+                <kbd>{isMacOS ? '⌘-' : 'Ctrl+-'}</kbd>
+                <span>恢复默认：</span>
+                <kbd>{isMacOS ? '⌘0' : 'Ctrl+0'}</kbd>
+              </p>
             </div>
           </section>
         ) : (
@@ -534,6 +694,8 @@ function App() {
       return true
     }
   })
+  const [typographyPreferences, setTypographyPreferences] =
+    useState<TypographyPreferences>(loadTypographyPreferences)
   const autoSaveTimerRef = useRef<number | null>(null)
   const lastSyncedContentRef = useRef('')
   const contentRef = useRef('')
@@ -550,6 +712,23 @@ function App() {
 
   const updateUndoAvailability = useCallback((view: EditorView | null = editorViewRef.current) => {
     setCanUndo(view ? undoDepth(view.state) > 0 : false)
+  }, [])
+
+  const adjustContentFontSize = useCallback((change: number) => {
+    setTypographyPreferences((current) => ({
+      ...current,
+      fontSize: normalizeFontSize(
+        current.fontSize + change,
+        DEFAULT_TYPOGRAPHY_PREFERENCES.fontSize
+      ),
+    }))
+  }, [])
+
+  const resetContentFontSize = useCallback(() => {
+    setTypographyPreferences((current) => ({
+      ...current,
+      fontSize: DEFAULT_TYPOGRAPHY_PREFERENCES.fontSize,
+    }))
   }, [])
 
   const handleToggleViewMode = useCallback(() => {
@@ -590,13 +769,14 @@ function App() {
             files: [],
           })),
           editorWidthMode: isEditorFullWidth ? 'full' : 'reading',
+          typography: typographyPreferences,
           currentFile,
         })
       )
     } catch {
       // ignore storage failures
     }
-  }, [openedFolders, isEditorFullWidth, currentFile])
+  }, [openedFolders, isEditorFullWidth, typographyPreferences, currentFile])
 
   const runToolbarAction = useCallback((action: () => unknown | Promise<unknown>) => {
     setOpenMenu(null)
@@ -1195,6 +1375,27 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const hasPrimaryModifier = isMacOS ? e.metaKey : e.ctrlKey
 
+      if (hasPrimaryModifier && ['+', '=', 'Add'].includes(e.key)) {
+        e.preventDefault()
+        e.stopPropagation()
+        adjustContentFontSize(1)
+        return
+      }
+
+      if (hasPrimaryModifier && ['-', '_', 'Subtract'].includes(e.key)) {
+        e.preventDefault()
+        e.stopPropagation()
+        adjustContentFontSize(-1)
+        return
+      }
+
+      if (hasPrimaryModifier && e.key === '0') {
+        e.preventDefault()
+        e.stopPropagation()
+        resetContentFontSize()
+        return
+      }
+
       // 模式切换快捷键
       if (hasPrimaryModifier && e.key === '/') {
         e.preventDefault()
@@ -1227,7 +1428,15 @@ function App() {
     // 并向文档写入 <!-- -->。
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [handleOpenFile, handleOpenFolder, handleSaveFile, handleToggleViewMode, isMacOS])
+  }, [
+    adjustContentFontSize,
+    handleOpenFile,
+    handleOpenFolder,
+    handleSaveFile,
+    handleToggleViewMode,
+    isMacOS,
+    resetContentFontSize,
+  ])
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -1667,10 +1876,14 @@ function App() {
         {isSettingsPageOpen ? (
           <SettingsPage
             fullWidth={isEditorFullWidth}
+            typography={typographyPreferences}
             isMacOS={isMacOS}
             updateStatus={updateStatus}
             onClose={() => setIsSettingsPageOpen(false)}
             onWidthChange={setIsEditorFullWidth}
+            onTypographyChange={(preferences) =>
+              setTypographyPreferences((current) => ({ ...current, ...preferences }))
+            }
             onOpenRepository={() => void openUrl(REPOSITORY_URL)}
             onCheckForUpdates={() => void handleCheckForUpdates()}
             onInstallUpdate={() => void handleInstallUpdate()}
@@ -1682,6 +1895,8 @@ function App() {
               {
                 ...(openedFolders.length > 0 ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
                 '--outline-width': `${outlineWidth}px`,
+                '--content-font-family': CONTENT_FONT_STACKS[typographyPreferences.fontFamily],
+                '--content-font-size': `${typographyPreferences.fontSize}px`,
               } as React.CSSProperties
             }
           >
