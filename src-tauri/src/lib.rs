@@ -17,6 +17,16 @@ use tauri::{
 };
 use tauri_plugin_opener::OpenerExt;
 
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn lightmarkit_webkit_create_pdf(
+        html_path: *const std::ffi::c_char,
+        pdf_path: *const std::ffi::c_char,
+        error_out: *mut *mut std::ffi::c_char,
+    ) -> bool;
+    fn lightmarkit_free_error(error: *mut std::ffi::c_char);
+}
+
 struct FileState {
     current_file: Mutex<Option<PathBuf>>,
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
@@ -1111,6 +1121,77 @@ fn open_exported_file(app: tauri::AppHandle, file_path: String) -> Result<(), St
         .map_err(|error| format!("Failed to open exported file: {}", error))
 }
 
+fn resolve_pdf_browser() -> Result<PathBuf, String> {
+    for variable in ["CHROME", "CHROME_PATH", "LIGHTMARKIT_CHROME_PATH"] {
+        if let Some(path) = env::var_os(variable).map(PathBuf::from) {
+            if path.is_file() {
+                return Ok(path);
+            }
+        }
+    }
+
+    if let Ok(path) = headless_chrome::browser::default_executable() {
+        return Ok(path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = vec![
+            PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            PathBuf::from("/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta"),
+            PathBuf::from("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            PathBuf::from("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        ];
+
+        if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+            candidates.extend([
+                home.join("Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+                home.join("Applications/Chromium.app/Contents/MacOS/Chromium"),
+                home.join("Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+            ]);
+        }
+
+        if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
+            return Ok(path);
+        }
+    }
+
+    Err(
+        "未找到可用于 PDF 导出的 Chrome/Chromium 浏览器。请安装 Google Chrome，或设置 CHROME_PATH 环境变量后重启 LightMarkit。"
+            .to_string(),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn export_pdf_with_webkit(html_path: &Path, pdf_path: &Path) -> Result<(), String> {
+    use std::ffi::CString;
+
+    let html_path = CString::new(html_path.to_string_lossy().as_bytes())
+        .map_err(|_| "Invalid temporary HTML path".to_string())?;
+    let pdf_path = CString::new(pdf_path.to_string_lossy().as_bytes())
+        .map_err(|_| "Invalid temporary PDF path".to_string())?;
+    let mut error = std::ptr::null_mut();
+
+    let success =
+        unsafe { lightmarkit_webkit_create_pdf(html_path.as_ptr(), pdf_path.as_ptr(), &mut error) };
+
+    if success {
+        return Ok(());
+    }
+
+    let message = if error.is_null() {
+        "Safari WebKit PDF export failed".to_string()
+    } else {
+        let message = unsafe { std::ffi::CStr::from_ptr(error) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { lightmarkit_free_error(error) };
+        message
+    };
+
+    Err(format!("Safari PDF 导出失败: {}", message))
+}
+
 #[tauri::command]
 async fn export_pdf(file_path: String, html_content: String, title: String) -> Result<(), String> {
     let output_path = PathBuf::from(&file_path);
@@ -1137,9 +1218,24 @@ async fn export_pdf(file_path: String, html_content: String, title: String) -> R
         .map_err(|e| format!("Failed to write temporary HTML file: {}", e))?;
     let temp_html_url = path_to_file_url(&temp_html_path);
 
+    #[cfg(target_os = "macos")]
+    if resolve_pdf_browser().is_err() {
+        let temp_pdf_path = PathBuf::from(format!("{}.tmp", file_path));
+        let webkit_result = export_pdf_with_webkit(&temp_html_path, &temp_pdf_path);
+        let _ = fs::remove_file(&temp_html_path);
+        webkit_result?;
+        fs::rename(&temp_pdf_path, &file_path).map_err(|error| {
+            let _ = fs::remove_file(&temp_pdf_path);
+            format!("Failed to save PDF file: {}", error)
+        })?;
+        return Ok(());
+    }
+
     let pdf_result = (|| -> Result<Vec<u8>, String> {
+        let chrome_path = resolve_pdf_browser()?;
         let browser = Browser::new(LaunchOptions {
             headless: true,
+            path: Some(chrome_path),
             window_size: Some((PDF_VIEWPORT_WIDTH, PDF_VIEWPORT_HEIGHT)),
             ..Default::default()
         })

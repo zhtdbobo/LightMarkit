@@ -1,6 +1,6 @@
 [package]
 name = "lightmarkit"
-version = "0.4.5"
+version = "0.4.6-preview.1"
 description = "轻量级 Markdown 编辑器"
 authors = ["LightMarkit"]
 edition = "2021"
@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

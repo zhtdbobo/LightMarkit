@@ -2170,9 +2170,10 @@ dependencies = [
 
 [[package]]
 name = "lightmarkit"
-version = "0.4.5"
+version = "0.4.6-preview.1"
 dependencies = [
  "base64 0.22.1",
+ "cc",
  "encoding_rs",
  "headless_chrome",
  "notify",

@@ -1,7 +1,7 @@
 {
   "name": "lightmarkit",
   "private": true,
-  "version": "0.4.5",
+  "version": "0.4.6-preview.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
