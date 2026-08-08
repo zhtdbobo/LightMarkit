@@ -11,6 +11,189 @@ interface MarkdownRenderEnv {
   currentFile?: string | null
 }
 
+const MATH_SYMBOLS: Record<string, string> = {
+  alpha: 'α',
+  beta: 'β',
+  gamma: 'γ',
+  delta: 'δ',
+  epsilon: 'ϵ',
+  theta: 'θ',
+  lambda: 'λ',
+  mu: 'μ',
+  pi: 'π',
+  sigma: 'σ',
+  phi: 'ϕ',
+  omega: 'ω',
+  sum: '∑',
+  prod: '∏',
+  infty: '∞',
+  cdot: '⋅',
+  times: '×',
+  mid: '∣',
+  le: '≤',
+  leq: '≤',
+  ge: '≥',
+  geq: '≥',
+  neq: '≠',
+  pm: '±',
+}
+
+function escapeMathText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderMathText(value: string, variant = 'normal'): string {
+  return `<mrow>${Array.from(value)
+    .map((character) => {
+      if (/\d/.test(character)) return `<mn>${character}</mn>`
+      if (/[A-Za-z]/.test(character)) {
+        return `<mi mathvariant="${variant}">${escapeMathText(character)}</mi>`
+      }
+      return `<mo>${escapeMathText(character)}</mo>`
+    })
+    .join('')}</mrow>`
+}
+
+function renderMathExpression(source: string): string {
+  let cursor = 0
+
+  const skipWhitespace = () => {
+    while (/\s/.test(source[cursor] ?? '')) cursor += 1
+  }
+
+  const readRawArgument = (): string => {
+    skipWhitespace()
+    if (source[cursor] !== '{') return source[cursor++] ?? ''
+
+    cursor += 1
+    const start = cursor
+    let depth = 1
+
+    while (cursor < source.length && depth > 0) {
+      if (source[cursor] === '{') depth += 1
+      if (source[cursor] === '}') depth -= 1
+      cursor += 1
+    }
+
+    return source.slice(start, Math.max(start, cursor - 1))
+  }
+
+  const parseSequence = (stopAtClosingBrace = false): string => {
+    const nodes: string[] = []
+
+    while (cursor < source.length) {
+      skipWhitespace()
+      const character = source[cursor]
+
+      if (!character) break
+      if (stopAtClosingBrace && character === '}') {
+        cursor += 1
+        break
+      }
+
+      if (character === '^' || character === '_') {
+        cursor += 1
+        const script = parseArgument()
+        const base = nodes.pop() ?? '<mo>□</mo>'
+        nodes.push(character === '^' ? `<msup>${base}${script}</msup>` : `<msub>${base}${script}</msub>`)
+        continue
+      }
+
+      nodes.push(parseAtom())
+    }
+
+    return nodes.join('')
+  }
+
+  const parseArgument = (): string => {
+    skipWhitespace()
+    if (source[cursor] === '{') {
+      cursor += 1
+      return `<mrow>${parseSequence(true)}</mrow>`
+    }
+    return parseAtom()
+  }
+
+  const parseCommand = (): string => {
+    cursor += 1
+    const commandStart = cursor
+
+    while (/[A-Za-z]/.test(source[cursor] ?? '')) cursor += 1
+
+    const command = source.slice(commandStart, cursor)
+    if (!command) {
+      return `<mo>${escapeMathText(source[cursor++] ?? '')}</mo>`
+    }
+
+    if (command === 'frac') {
+      return `<mfrac>${parseArgument()}${parseArgument()}</mfrac>`
+    }
+
+    if (command === 'mathrm' || command === 'text' || command === 'operatorname') {
+      const variant = command === 'text' ? 'normal' : 'normal'
+      return renderMathText(readRawArgument(), variant)
+    }
+
+    if (command === 'mathbf' || command === 'boldsymbol') {
+      return renderMathText(readRawArgument(), 'bold')
+    }
+
+    if (command === 'mathit') {
+      return renderMathText(readRawArgument(), 'italic')
+    }
+
+    if (command === 'left' || command === 'right') {
+      return ''
+    }
+
+    if (command === 'log' || command === 'ln' || command === 'sin' || command === 'cos') {
+      return `<mi mathvariant="normal">${command}</mi>`
+    }
+
+    const symbol = MATH_SYMBOLS[command]
+    if (symbol) return `<mo>${symbol}</mo>`
+
+    return `<mtext>${escapeMathText(`\\${command}`)}</mtext>`
+  }
+
+  const parseAtom = (): string => {
+    const character = source[cursor]
+
+    if (character === '{') {
+      cursor += 1
+      return `<mrow>${parseSequence(true)}</mrow>`
+    }
+
+    if (character === '\\') return parseCommand()
+
+    if (/\d/.test(character ?? '')) {
+      const start = cursor
+      while (/[\d.]/.test(source[cursor] ?? '')) cursor += 1
+      return `<mn>${source.slice(start, cursor)}</mn>`
+    }
+
+    cursor += 1
+    if (/[A-Za-z]/.test(character ?? '')) return `<mi>${escapeMathText(character)}</mi>`
+    if ('=+-*/(),[]<>|'.includes(character ?? '')) {
+      const operator = character === '-' ? '−' : character
+      return `<mo>${escapeMathText(operator)}</mo>`
+    }
+    return `<mtext>${escapeMathText(character ?? '')}</mtext>`
+  }
+
+  return parseSequence()
+}
+
+function renderMathHtml(source: string, displayMode: boolean): string {
+  const display = displayMode ? 'block' : 'inline'
+  const body = renderMathExpression(source.trim()) || '<mtext>□</mtext>'
+  return `<math class="math-${display}" xmlns="http://www.w3.org/1998/Math/MathML" display="${display}"><mrow>${body}</mrow></math>`
+}
+
 const WINDOWS_DRIVE_PATH_PATTERN = /^[a-zA-Z]:(?:[\\/]|$)/
 const WINDOWS_DRIVE_ENCODED_PATH_PATTERN = /^[a-zA-Z]:(?:%5[cC]|%2[fF])/
 const LOCAL_IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)(?:[?#].*)?$/i
@@ -173,6 +356,78 @@ const md = new MarkdownIt({
   .use(footnote)
   .enable(['table', 'strikethrough'])
 
+md.block.ruler.before('fence', 'math_block', (state, startLine, _endLine, silent) => {
+  const start = state.bMarks[startLine] + state.tShift[startLine]
+  const end = state.eMarks[startLine]
+  const firstLine = state.src.slice(start, end).trim()
+
+  if (!firstLine.startsWith('$$')) return false
+
+  let nextLine = startLine + 1
+  let content = ''
+
+  if (firstLine.length > 4 && firstLine.endsWith('$$')) {
+    content = firstLine.slice(2, -2).trim()
+  } else if (firstLine === '$$') {
+    while (nextLine < _endLine) {
+      const lineStart = state.bMarks[nextLine] + state.tShift[nextLine]
+      const lineEnd = state.eMarks[nextLine]
+      const line = state.src.slice(lineStart, lineEnd).trim()
+
+      if (line === '$$') break
+      nextLine += 1
+    }
+
+    if (nextLine >= _endLine) return false
+    content = state.getLines(startLine + 1, nextLine, state.blkIndent, true).trim()
+    nextLine += 1
+  } else {
+    return false
+  }
+
+  if (silent) return true
+
+  const token = state.push('math_block', 'div', 0)
+  token.block = true
+  token.map = [startLine, nextLine]
+  token.content = content
+  state.line = nextLine
+  return true
+})
+
+md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
+  const start = state.pos
+  if (state.src.charCodeAt(start) !== 0x24 || state.src.charCodeAt(start + 1) === 0x24) {
+    return false
+  }
+
+  let end = start + 1
+  while (end < state.posMax) {
+    if (state.src.charCodeAt(end) === 0x24 && state.src.charCodeAt(end - 1) !== 0x5c) break
+    if (state.src.charCodeAt(end) === 0x0a) return false
+    end += 1
+  }
+
+  if (end >= state.posMax || end === start + 1) return false
+
+  const content = state.src.slice(start + 1, end)
+  if (!content.trim() || /^\s|\s$/.test(content)) return false
+  if (silent) return true
+
+  const token = state.push('math_inline', '', 0)
+  token.content = content
+  token.markup = '$'
+  state.pos = end + 1
+  return true
+})
+
+md.renderer.rules.math_block = (tokens, idx) => {
+  const sourceLine = tokens[idx].attrGet('data-source-line')
+  const sourceAttr = sourceLine ? ` data-source-line="${sourceLine}"` : ''
+  return `<div class="math-block"${sourceAttr}>${renderMathHtml(tokens[idx].content, true)}</div>`
+}
+md.renderer.rules.math_inline = (tokens, idx) => renderMathHtml(tokens[idx].content, false)
+
 const defaultValidateLink = md.validateLink.bind(md)
 md.validateLink = (url) => {
   return url.toLowerCase().startsWith('file:') || defaultValidateLink(url)
@@ -190,6 +445,10 @@ md.core.ruler.push('source_line_attrs', (state) => {
     }
 
     if (token.map && token.type === 'html_block') {
+      token.attrSet('data-source-line', String(token.map[0] + 1))
+    }
+
+    if (token.map && token.type === 'math_block') {
       token.attrSet('data-source-line', String(token.map[0] + 1))
     }
   }
@@ -224,6 +483,23 @@ md.renderer.rules.image = (tokens, idx, options, env: MarkdownRenderEnv, self) =
 
   return defaultImageRenderer
     ? defaultImageRenderer(tokens, idx, options, env, self)
+    : self.renderToken(tokens, idx, options)
+}
+
+const defaultLinkOpenRenderer = md.renderer.rules.link_open
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  const href = token.attrGet('href') ?? ''
+
+  if (/^https?:\/\//i.test(href)) {
+    token.attrJoin('class', 'preview-external-link')
+    token.attrSet('target', '_blank')
+    token.attrSet('rel', 'noopener noreferrer')
+    token.attrSet('data-external-link', 'true')
+  }
+
+  return defaultLinkOpenRenderer
+    ? defaultLinkOpenRenderer(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options)
 }
 

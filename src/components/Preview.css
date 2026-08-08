@@ -5,7 +5,6 @@
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-gutter: stable;
   overflow-wrap: anywhere;
   color: #222222;
   font-family: var(
@@ -30,7 +29,7 @@
   width: 100%;
   max-width: 920px;
   min-height: 100%;
-  padding: 40px 56px max(120px, calc(100vh - 80px));
+  padding: 40px 56px 44px;
   margin: 0 auto;
 }
 
@@ -105,6 +104,25 @@
   margin-bottom: 1em;
 }
 
+.preview-container .math-block {
+  max-width: 100%;
+  margin: 1.2em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.preview-container math.math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.preview-container math.math-block {
+  display: block;
+  min-width: max-content;
+  font-size: 1.08em;
+}
+
 .preview-container strong {
   color: #111111;
   font-weight: 600;
@@ -116,13 +134,25 @@
 }
 
 .preview-container a {
-  color: #111111;
-  text-decoration: none;
+  color: #1967d2;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: #7da7e8;
+  text-underline-offset: 2px;
 }
 
 .preview-container a:hover {
-  color: #000000;
-  text-decoration: underline;
+  color: #174ea6;
+  text-decoration-color: currentColor;
+}
+
+.preview-container a.preview-external-link::after {
+  display: inline-block;
+  margin-left: 0.22em;
+  color: #6b7280;
+  font-size: 0.82em;
+  content: '↗';
+  vertical-align: super;
 }
 
 .preview-container code {

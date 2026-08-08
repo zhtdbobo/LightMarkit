@@ -18,7 +18,6 @@
 .editor-wrapper .cm-scroller {
   height: 100%;
   overflow: auto;
-  scrollbar-gutter: stable;
   font-family: inherit;
 }
 
@@ -26,7 +25,7 @@
   box-sizing: border-box;
   width: 100%;
   max-width: 920px;
-  padding: 40px 56px max(120px, calc(100vh - 80px));
+  padding: 40px 56px 44px;
   margin: 0 auto;
   min-height: 100%;
   overflow-wrap: anywhere;
@@ -54,7 +53,7 @@
 
 .editor-wrapper.source-editor .cm-content {
   max-width: none;
-  padding: 44px 24px max(120px, calc(100vh - 80px));
+  padding: 44px 24px 44px;
   margin: 0;
 }
 

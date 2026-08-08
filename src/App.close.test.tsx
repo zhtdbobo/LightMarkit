@@ -31,6 +31,7 @@ vi.mock('./utils/fileApi', () => ({
 vi.mock('./utils/exportApi', () => ({
   exportHtml: vi.fn(),
   exportPdf: vi.fn(),
+  openExportedFile: vi.fn(),
 }))
 
 describe('App window close behavior', () => {

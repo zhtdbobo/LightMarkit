@@ -3,7 +3,7 @@ import { EditorView } from 'codemirror'
 import { undo, undoDepth } from '@codemirror/commands'
 import { listen } from '@tauri-apps/api/event'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -20,7 +20,7 @@ import {
   watchCurrentFile,
 } from './utils/fileApi'
 import { scanFolder } from './utils/folderApi'
-import { exportHtml, exportPdf } from './utils/exportApi'
+import { exportHtml, exportPdf, openExportedFile } from './utils/exportApi'
 import { extractMarkdownOutline, type OutlineItem } from './utils/outline'
 import { renderMarkdownToExportHtml } from './utils/markdownRenderer'
 import {
@@ -41,6 +41,13 @@ const UPDATE_CHECK_TIMEOUT_MS = 30_000
 
 type ViewMode = 'edit' | 'preview'
 type SaveStatus = 'idle' | 'saving' | 'saved'
+type OperationFormat = 'HTML' | 'PDF'
+type ExportPhase = 'preparing' | 'rendering' | 'writing'
+type OperationStatus =
+  | { state: 'idle' }
+  | { state: 'exporting'; format: OperationFormat; progress: number | null; phase: ExportPhase }
+  | { state: 'completed'; format: OperationFormat; filePath: string }
+  | { state: 'error'; format: OperationFormat; message: string }
 type ToolbarMenu = 'file' | 'export' | null
 type ExportExtension = 'html' | 'pdf' | 'md'
 type ContentFontFamily = 'system' | 'sans' | 'serif' | 'monospace'
@@ -53,6 +60,16 @@ type UpdateStatus =
   | { state: 'installing'; version: string }
   | { state: 'error'; message: string }
 
+interface EditorTab {
+  id: string
+  filePath: string | null
+  content: string
+  lastSyncedContent: string
+  viewMode: ViewMode
+  editorScrollTop: number
+  previewScrollTop: number
+}
+
 const FALLBACK_DOCUMENT_NAME = 'LightMarkit Document'
 const MARKDOWN_EXTENSION_PATTERN = /\.(md|markdown)$/i
 const INVALID_FILE_NAME_CHARACTERS = /[<>:"/\\|?*]/g
@@ -63,6 +80,22 @@ const MAX_OUTLINE_WIDTH = 480
 const APP_LAYOUT_STORAGE_KEY = 'lightmarkit.layout.v1'
 const MIN_CONTENT_FONT_SIZE = 12
 const MAX_CONTENT_FONT_SIZE = 28
+let nextTabId = 1
+
+function createEditorTab(overrides: Partial<EditorTab> = {}): EditorTab {
+  const id = `tab-${nextTabId++}`
+
+  return {
+    id,
+    filePath: null,
+    content: '',
+    lastSyncedContent: '',
+    viewMode: 'edit',
+    editorScrollTop: 0,
+    previewScrollTop: 0,
+    ...overrides,
+  }
+}
 
 interface TypographyPreferences {
   fontFamily: ContentFontFamily
@@ -337,7 +370,6 @@ interface SettingsPageProps {
   typography: TypographyPreferences
   isMacOS: boolean
   updateStatus: UpdateStatus
-  onClose: () => void
   onWidthChange: (fullWidth: boolean) => void
   onTypographyChange: (preferences: Partial<TypographyPreferences>) => void
   onOpenRepository: () => void
@@ -350,7 +382,6 @@ function SettingsPage({
   typography,
   isMacOS,
   updateStatus,
-  onClose,
   onWidthChange,
   onTypographyChange,
   onOpenRepository,
@@ -358,18 +389,6 @@ function SettingsPage({
   onInstallUpdate,
 }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<'editor' | 'about'>('editor')
-  const closeButton = (
-    <button
-      type="button"
-      className="settings-close-button"
-      onClick={onClose}
-      aria-label="关闭设置"
-      title="关闭设置"
-    >
-      ×
-    </button>
-  )
-
   return (
     <section
       className={`settings-page ${isMacOS ? 'platform-macos' : 'platform-windows'}`}
@@ -377,7 +396,6 @@ function SettingsPage({
     >
       <aside className="settings-sidebar">
         <header className="settings-sidebar-header">
-          {isMacOS && closeButton}
           <h1 id="settings-page-title">设置</h1>
         </header>
         <nav className="settings-navigation" aria-label="设置分类">
@@ -401,8 +419,6 @@ function SettingsPage({
       </aside>
 
       <main className="settings-detail">
-        {!isMacOS && closeButton}
-
         {activeSection === 'editor' ? (
           <section className="settings-detail-section" aria-labelledby="editor-settings-title">
             <header className="settings-content-header">
@@ -644,7 +660,10 @@ function App() {
   const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [currentFile, setCurrentFilePath] = useState<string | null>(null)
+  const [tabs, setTabs] = useState<EditorTab[]>(() => [createEditorTab({ id: 'tab-initial' })])
+  const [activeTabId, setActiveTabId] = useState('tab-initial')
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [exportStatus, setExportStatus] = useState<OperationStatus>({ state: 'idle' })
   const [openedFolders, setOpenedFolders] = useState<FolderGroup[]>(() => {
     try {
       const raw = localStorage.getItem(APP_STATE_STORAGE_KEY)
@@ -699,16 +718,148 @@ function App() {
   const autoSaveTimerRef = useRef<number | null>(null)
   const lastSyncedContentRef = useRef('')
   const contentRef = useRef('')
+  const currentFileRef = useRef<string | null>(null)
   const headerActionsRef = useRef<HTMLElement | null>(null)
   const editorPanelRef = useRef<HTMLDivElement | null>(null)
   const previewPanelRef = useRef<HTMLDivElement | null>(null)
   const editorViewRef = useRef<EditorView | null>(null)
+  const editorViewsRef = useRef<Map<string, EditorView>>(new Map())
+  const tabViewportRef = useRef<HTMLDivElement | null>(null)
+  const tabElementRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
   const availableUpdateRef = useRef<Update | null>(null)
   const isProgrammaticCloseRef = useRef(false)
   const activeOutlineIdRef = useRef<string | null>(null)
   const pendingViewScrollLineRef = useRef<number | null>(null)
   const fileLoadRequestRef = useRef(0)
   const systemOpenRequestRef = useRef(0)
+
+  const exportingPhase = exportStatus.state === 'exporting' ? exportStatus.phase : null
+
+  useEffect(() => {
+    if (!exportingPhase) return
+
+    const phaseLimit = {
+      preparing: 20,
+      rendering: 70,
+      writing: 98,
+    }[exportingPhase]
+
+    const timer = window.setInterval(() => {
+      setExportStatus((current) => {
+        if (current.state !== 'exporting' || current.phase !== exportingPhase) return current
+
+        const progress = current.progress ?? 0
+        if (progress >= phaseLimit) return current
+
+        return {
+          ...current,
+          progress: Math.min(phaseLimit, progress + 1),
+        }
+      })
+    }, 120)
+
+    return () => window.clearInterval(timer)
+  }, [exportingPhase])
+
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
+
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId
+  }, [activeTabId])
+
+  const updateTabById = useCallback((tabId: string, updater: (tab: EditorTab) => EditorTab) => {
+    setTabs((currentTabs) =>
+      currentTabs.map((tab) => (tab.id === tabId ? updater(tab) : tab))
+    )
+  }, [])
+
+  const updateActiveTab = useCallback(
+    (updater: (tab: EditorTab) => EditorTab) => {
+      updateTabById(activeTabIdRef.current, updater)
+    },
+    [updateTabById]
+  )
+
+  const setActiveContent = useCallback(
+    (nextContent: string) => {
+      contentRef.current = nextContent
+      setContent(nextContent)
+      updateActiveTab((tab) => ({ ...tab, content: nextContent }))
+    },
+    [updateActiveTab]
+  )
+
+  const captureActiveTabPosition = useCallback(() => {
+    const tabId = activeTabIdRef.current
+    const activeView = editorViewsRef.current.get(activeTabIdRef.current)
+    const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+
+    updateTabById(tabId, (tab) => ({
+      ...tab,
+      editorScrollTop: activeView?.scrollDOM.scrollTop ?? tab.editorScrollTop,
+      previewScrollTop: previewScroller?.scrollTop ?? tab.previewScrollTop,
+      viewMode,
+    }))
+  }, [updateTabById, viewMode])
+
+  const switchToTab = useCallback(
+    (tabId: string) => {
+      if (tabId === activeTabIdRef.current) return
+
+      captureActiveTabPosition()
+      const nextTab = tabsRef.current.find((tab) => tab.id === tabId)
+      if (!nextTab) return
+
+      activeTabIdRef.current = tabId
+      setActiveTabId(tabId)
+      contentRef.current = nextTab.content
+      setContent(nextTab.content)
+      currentFileRef.current = nextTab.filePath
+      setCurrentFilePath(nextTab.filePath)
+      lastSyncedContentRef.current = nextTab.lastSyncedContent
+      setViewMode(nextTab.viewMode)
+      const nextView = editorViewsRef.current.get(tabId)
+      editorViewRef.current = nextView ?? null
+      setCanUndo(nextView ? undoDepth(nextView.state) > 0 : false)
+    },
+    [captureActiveTabPosition]
+  )
+
+  const switchTabByOffset = useCallback(
+    (offset: number) => {
+      const currentTabs = tabsRef.current
+      if (currentTabs.length < 2) return
+
+      const currentIndex = Math.max(
+        0,
+        currentTabs.findIndex((tab) => tab.id === activeTabIdRef.current)
+      )
+      const nextIndex = (currentIndex + offset + currentTabs.length) % currentTabs.length
+      switchToTab(currentTabs[nextIndex].id)
+    },
+    [switchToTab]
+  )
+
+  useEffect(() => {
+    const viewport = tabViewportRef.current
+    const activeElement = tabElementRefs.current.get(activeTabId)
+    if (!viewport || !activeElement) return
+
+    const elementLeft = activeElement.offsetLeft
+    const elementRight = elementLeft + activeElement.offsetWidth
+    const viewportLeft = viewport.scrollLeft
+    const viewportRight = viewportLeft + viewport.clientWidth
+
+    if (elementLeft < viewportLeft) {
+      viewport.scrollLeft = elementLeft
+    } else if (elementRight > viewportRight) {
+      viewport.scrollLeft = elementRight - viewport.clientWidth
+    }
+  }, [activeTabId, tabs])
 
   const updateUndoAvailability = useCallback((view: EditorView | null = editorViewRef.current) => {
     setCanUndo(view ? undoDepth(view.state) > 0 : false)
@@ -743,12 +894,27 @@ function App() {
           ? resolvePreviewSourceLine(previewScroller, 0)
           : null
 
-    setViewMode((current) => (current === 'edit' ? 'preview' : 'edit'))
-  }, [viewMode])
+    const nextMode = viewMode === 'edit' ? 'preview' : 'edit'
+    updateActiveTab((tab) => ({ ...tab, viewMode: nextMode }))
+    setViewMode(nextMode)
+  }, [updateActiveTab, viewMode])
 
   useEffect(() => {
     contentRef.current = content
+    setTabs((currentTabs) => {
+      let changed = false
+      const nextTabs = currentTabs.map((tab) => {
+        if (tab.id !== activeTabIdRef.current || tab.content === content) return tab
+        changed = true
+        return { ...tab, content }
+      })
+      return changed ? nextTabs : currentTabs
+    })
   }, [content])
+
+  useEffect(() => {
+    currentFileRef.current = currentFile
+  }, [currentFile])
 
   useEffect(() => {
     try {
@@ -784,7 +950,7 @@ function App() {
   }, [])
 
   const handleUndo = useCallback(() => {
-    const view = editorViewRef.current
+    const view = editorViewsRef.current.get(activeTabIdRef.current) ?? editorViewRef.current
 
     if (!view || viewMode !== 'edit' || isSettingsPageOpen) {
       updateUndoAvailability(null)
@@ -834,11 +1000,40 @@ function App() {
       return
     }
 
-    setContent(fileContent)
-    lastSyncedContentRef.current = fileContent
-    setCurrentFilePath(filePath)
+    captureActiveTabPosition()
+    const existingTab = tabsRef.current.find((tab) => tab.filePath === filePath)
+
+    if (existingTab) {
+      switchToTab(existingTab.id)
+    } else {
+      const currentTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current)
+      const shouldReuseBlankTab = currentTab && currentTab.filePath === null && currentTab.content === ''
+      const nextTab = createEditorTab({
+        filePath,
+        content: fileContent,
+        lastSyncedContent: fileContent,
+      })
+
+      if (shouldReuseBlankTab) {
+        const reusedTab = { ...nextTab, id: activeTabIdRef.current }
+        setTabs((currentTabs) =>
+          currentTabs.map((tab) => (tab.id === activeTabIdRef.current ? reusedTab : tab))
+        )
+      } else {
+        setTabs((currentTabs) => [...currentTabs, nextTab])
+        activeTabIdRef.current = nextTab.id
+        setActiveTabId(nextTab.id)
+      }
+
+      setContent(fileContent)
+      contentRef.current = fileContent
+      lastSyncedContentRef.current = fileContent
+      currentFileRef.current = filePath
+      setCurrentFilePath(filePath)
+      setViewMode('edit')
+    }
     setFileError(null)
-  }, [])
+  }, [captureActiveTabPosition, switchToTab])
 
   // 打开文件
   const handleOpenFile = useCallback(async () => {
@@ -924,6 +1119,61 @@ function App() {
     [loadFile]
   )
 
+  const handleNewTab = useCallback(() => {
+    captureActiveTabPosition()
+    const nextTab = createEditorTab()
+    setTabs((currentTabs) => [...currentTabs, nextTab])
+    activeTabIdRef.current = nextTab.id
+    setActiveTabId(nextTab.id)
+    setContent('')
+    contentRef.current = ''
+    currentFileRef.current = null
+    setCurrentFilePath(null)
+    lastSyncedContentRef.current = ''
+    setViewMode('edit')
+  }, [captureActiveTabPosition])
+
+  const handleCloseTab = useCallback(
+    (event: React.SyntheticEvent, tabId: string) => {
+      event.stopPropagation()
+      const currentTabs = tabsRef.current
+      const closingIndex = currentTabs.findIndex((tab) => tab.id === tabId)
+      if (closingIndex < 0) return
+
+      editorViewsRef.current.delete(tabId)
+
+      if (currentTabs.length === 1) {
+        const nextTab = createEditorTab()
+        setTabs([nextTab])
+        activeTabIdRef.current = nextTab.id
+        setActiveTabId(nextTab.id)
+        setContent('')
+        contentRef.current = ''
+        currentFileRef.current = null
+        setCurrentFilePath(null)
+        lastSyncedContentRef.current = ''
+        setViewMode('edit')
+        return
+      }
+
+      const nextTabs = currentTabs.filter((tab) => tab.id !== tabId)
+      setTabs(nextTabs)
+
+      if (tabId !== activeTabIdRef.current) return
+
+      const nextTab = nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0]
+      activeTabIdRef.current = nextTab.id
+      setActiveTabId(nextTab.id)
+      setContent(nextTab.content)
+      contentRef.current = nextTab.content
+      currentFileRef.current = nextTab.filePath
+      setCurrentFilePath(nextTab.filePath)
+      lastSyncedContentRef.current = nextTab.lastSyncedContent
+      setViewMode(nextTab.viewMode)
+    },
+    []
+  )
+
   const handleFolderClose = useCallback((folderPath: string) => {
     setOpenedFolders((folders) => folders.filter((folder) => folder.path !== folderPath))
   }, [])
@@ -984,6 +1234,9 @@ function App() {
 
   // 导出 HTML
   const handleExportHtml = useCallback(async () => {
+    const format: OperationFormat = 'HTML'
+    setExportStatus({ state: 'exporting', format, progress: 0, phase: 'preparing' })
+
     try {
       const filePath = await save({
         defaultPath: getExportFileName(content, currentFile, 'html'),
@@ -995,7 +1248,13 @@ function App() {
         ],
       })
 
+      if (!filePath) {
+        setExportStatus({ state: 'idle' })
+        return
+      }
+
       if (filePath) {
+        setExportStatus({ state: 'exporting', format, progress: 20, phase: 'rendering' })
         // 渲染 Markdown 为 HTML
         const htmlContent = await renderMarkdownToExportHtml(content, { currentFile })
 
@@ -1010,16 +1269,22 @@ function App() {
           }
         }
 
+        setExportStatus({ state: 'exporting', format, progress: 70, phase: 'writing' })
         await exportHtml(filePath, htmlContent, title)
+        setExportStatus({ state: 'completed', format, filePath })
         console.log('HTML exported successfully:', filePath)
       }
     } catch (error) {
       console.error('Failed to export HTML:', error)
+      setExportStatus({ state: 'error', format, message: getErrorMessage(error) })
     }
   }, [content, currentFile])
 
   // 导出 PDF
   const handleExportPdf = useCallback(async () => {
+    const format: OperationFormat = 'PDF'
+    setExportStatus({ state: 'exporting', format, progress: 0, phase: 'preparing' })
+
     try {
       const filePath = await save({
         defaultPath: getExportFileName(content, currentFile, 'pdf'),
@@ -1031,7 +1296,13 @@ function App() {
         ],
       })
 
+      if (!filePath) {
+        setExportStatus({ state: 'idle' })
+        return
+      }
+
       if (filePath) {
+        setExportStatus({ state: 'exporting', format, progress: 20, phase: 'rendering' })
         // 渲染 Markdown 为 HTML
         const htmlContent = await renderMarkdownToExportHtml(content, { currentFile })
 
@@ -1046,11 +1317,14 @@ function App() {
           }
         }
 
+        setExportStatus({ state: 'exporting', format, progress: 70, phase: 'writing' })
         await exportPdf(filePath, htmlContent, title)
+        setExportStatus({ state: 'completed', format, filePath })
         console.log('PDF exported successfully:', filePath)
       }
     } catch (error) {
       console.error('Failed to export PDF:', error)
+      setExportStatus({ state: 'error', format, message: getErrorMessage(error) })
     }
   }, [content, currentFile])
 
@@ -1072,6 +1346,12 @@ function App() {
         lastSyncedContentRef.current = content
         setCurrentFilePath(selected)
         await setCurrentFile(selected)
+        updateActiveTab((tab) => ({
+          ...tab,
+          filePath: selected,
+          content,
+          lastSyncedContent: content,
+        }))
         console.log('File saved as:', selected)
         return true
       }
@@ -1081,7 +1361,7 @@ function App() {
       console.error('Failed to save file:', error)
       return false
     }
-  }, [content, currentFile])
+  }, [content, currentFile, updateActiveTab])
 
   // 保存文件
   const handleSaveFile = useCallback(async (): Promise<boolean> => {
@@ -1211,21 +1491,28 @@ function App() {
   }, [loadFile])
 
   const handleCloseWindow = useCallback(async () => {
-    if (!currentFile && content.trim().length > 0) {
+    const latestContent = contentRef.current
+    const latestFile = currentFileRef.current
+
+    if (!latestFile && latestContent.trim().length > 0) {
       const saved = await handleSaveAsFile()
       if (!saved) {
         return
       }
-    } else if (currentFile && content !== lastSyncedContentRef.current) {
-      const saved = await handleSaveFile()
-      if (!saved) {
+    } else if (latestFile && latestContent !== lastSyncedContentRef.current) {
+      try {
+        await fileWrite(latestFile, latestContent)
+        lastSyncedContentRef.current = latestContent
+        updateActiveTab((tab) => ({ ...tab, lastSyncedContent: latestContent }))
+      } catch (error) {
+        console.error('Failed to save file before closing:', error)
         return
       }
     }
 
     isProgrammaticCloseRef.current = true
     await getCurrentWindow().destroy()
-  }, [content, currentFile, handleSaveAsFile, handleSaveFile])
+  }, [handleSaveAsFile, updateActiveTab])
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -1404,6 +1691,13 @@ function App() {
         return
       }
 
+      if (hasPrimaryModifier && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        e.stopPropagation()
+        handleUndo()
+        return
+      }
+
       // 打开文件夹快捷键
       if (hasPrimaryModifier && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
@@ -1434,6 +1728,7 @@ function App() {
     handleOpenFolder,
     handleSaveFile,
     handleToggleViewMode,
+    handleUndo,
     isMacOS,
     resetContentFontSize,
   ])
@@ -1464,29 +1759,23 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (viewMode !== 'edit') {
-      return
-    }
+    const tab = tabs.find((item) => item.id === activeTabId)
+    if (!tab) return
 
-    previewPanelRef.current = null
-  }, [viewMode])
+    const frame = window.requestAnimationFrame(() => {
+      const view = editorViewsRef.current.get(activeTabId)
+      if (view) {
+        view.scrollDOM.scrollTop = tab.editorScrollTop
+      }
 
-  useEffect(() => {
-    if (viewMode !== 'preview') {
-      return
-    }
+      const previewScroller = previewPanelRef.current?.querySelector<HTMLElement>('.preview-container')
+      if (previewScroller) {
+        previewScroller.scrollTop = tab.previewScrollTop
+      }
+    })
 
-    editorPanelRef.current = null
-    editorViewRef.current = null
-  }, [viewMode])
-
-  useEffect(() => {
-    if (!isSettingsPageOpen) {
-      return
-    }
-
-    editorViewRef.current = null
-  }, [isSettingsPageOpen])
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTabId, tabs, viewMode])
 
   const handleOutlineItemClick = useCallback(
     (item: OutlineItem) => {
@@ -1588,7 +1877,8 @@ function App() {
         }
 
         lastSyncedContentRef.current = latestContent
-        setContent(latestContent)
+        setActiveContent(latestContent)
+        updateActiveTab((tab) => ({ ...tab, lastSyncedContent: latestContent }))
         setFileError(null)
       } catch (error) {
         console.error('Failed to refresh file content:', error)
@@ -1605,7 +1895,7 @@ function App() {
       disposed = true
       unlisten?.()
     }
-  }, [currentFile])
+  }, [currentFile, setActiveContent, updateActiveTab])
 
   const updateActiveOutlineFromLine = useCallback(
     (line: number) => {
@@ -1744,7 +2034,15 @@ function App() {
   }
 
   const isUndoDisabled = isSettingsPageOpen || viewMode !== 'edit' || !canUndo
+  const exportPhaseText = exportStatus.state === 'exporting'
+    ? {
+        preparing: '准备导出…',
+        rendering: '正在生成内容…',
+        writing: '正在写入文件…',
+      }[exportStatus.phase]
+    : ''
   const toggleViewShortcut = getShortcutLabel(isMacOS, '/')
+  const operationVerb = '导出'
   const toggleViewLabel = viewMode === 'edit' ? '切换到预览' : '切换到编辑'
 
   return (
@@ -1759,7 +2057,10 @@ function App() {
             <button
               type="button"
               className="menu-trigger"
-              onClick={() => setOpenMenu((menu) => (menu === 'file' ? null : 'file'))}
+              onClick={() => {
+                setIsSettingsPageOpen(false)
+                setOpenMenu((menu) => (menu === 'file' ? null : 'file'))
+              }}
               aria-haspopup="menu"
               aria-expanded={openMenu === 'file'}
               aria-label="文件"
@@ -1792,7 +2093,10 @@ function App() {
             <button
               type="button"
               className="menu-trigger"
-              onClick={() => setOpenMenu((menu) => (menu === 'export' ? null : 'export'))}
+              onClick={() => {
+                setIsSettingsPageOpen(false)
+                setOpenMenu((menu) => (menu === 'export' ? null : 'export'))
+              }}
               aria-haspopup="menu"
               aria-expanded={openMenu === 'export'}
               aria-label="导出"
@@ -1872,6 +2176,86 @@ function App() {
           </button>
         </div>
       )}
+      {exportStatus.state !== 'idle' && (
+        <div className="export-dialog-backdrop" role="presentation">
+          <section
+            className={'export-dialog ' + exportStatus.state}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-dialog-title"
+          >
+            <h2 id="export-dialog-title">
+              {exportStatus.state === 'exporting' ? (
+                <>{operationVerb}中 {exportStatus.format}</>
+              ) : exportStatus.state === 'completed' ? (
+                <>{exportStatus.format} {operationVerb}完成</>
+              ) : (
+                <>{exportStatus.format} {operationVerb}失败</>
+              )}
+            </h2>
+            {exportStatus.state === 'exporting' && (
+              <>
+                <p>{exportPhaseText}</p>
+                <progress max="100" value={exportStatus.progress ?? 90}>
+                  {exportStatus.progress ?? 90}%
+                </progress>
+                <span className="export-dialog-progress">
+                  {exportStatus.progress ?? 90}%
+                </span>
+              </>
+            )}
+            {exportStatus.state === 'completed' && <p>操作已成功完成。</p>}
+            {exportStatus.state === 'error' && <p>{exportStatus.message}</p>}
+            {exportStatus.state === 'completed' ? (
+              <div className="export-dialog-actions">
+                <button
+                  type="button"
+                  className="export-dialog-button"
+                  onClick={() => {
+                    if (exportStatus.state !== 'completed') return
+                    const filePath = exportStatus.filePath
+                    setExportStatus({ state: 'idle' })
+                    void openExportedFile(filePath).catch((error) => {
+                      setFileError(`无法使用默认程序打开导出文件：${getErrorMessage(error)}`)
+                    })
+                  }}
+                >
+                  打开文件
+                </button>
+                <button
+                  type="button"
+                  className="export-dialog-button secondary"
+                  onClick={() => {
+                    if (exportStatus.state !== 'completed') return
+                    const filePath = exportStatus.filePath
+                    setExportStatus({ state: 'idle' })
+                    void revealItemInDir(filePath).catch((error) => {
+                      setFileError(`无法打开导出文件所在文件夹：${getErrorMessage(error)}`)
+                    })
+                  }}
+                >
+                  打开所在文件夹
+                </button>
+                <button
+                  type="button"
+                  className="export-dialog-button secondary"
+                  onClick={() => setExportStatus({ state: 'idle' })}
+                >
+                  关闭
+                </button>
+              </div>
+            ) : exportStatus.state === 'error' ? (
+              <button
+                type="button"
+                className="export-dialog-button"
+                onClick={() => setExportStatus({ state: 'idle' })}
+              >
+                关闭
+              </button>
+            ) : null}
+          </section>
+        </div>
+      )}
       <main className="app-main">
         {isSettingsPageOpen ? (
           <SettingsPage
@@ -1879,7 +2263,6 @@ function App() {
             typography={typographyPreferences}
             isMacOS={isMacOS}
             updateStatus={updateStatus}
-            onClose={() => setIsSettingsPageOpen(false)}
             onWidthChange={setIsEditorFullWidth}
             onTypographyChange={(preferences) =>
               setTypographyPreferences((current) => ({ ...current, ...preferences }))
@@ -1920,41 +2303,141 @@ function App() {
             )}
             <div className={`editor-preview-container mode-${viewMode}`}>
               <div className="editor-preview-surface">
-                <button
-                  type="button"
-                  className="view-mode-switch"
-                  onClick={handleToggleViewMode}
-                  aria-label={toggleViewLabel}
-                  title={`${toggleViewLabel} (${toggleViewShortcut})`}
-                >
-                  <span>{viewMode === 'edit' ? '预览' : '编辑'}</span>
-                  <kbd>{toggleViewShortcut}</kbd>
-                </button>
-                {viewMode === 'edit' && (
-                  <div ref={editorPanelRef} className="editor-panel">
-                    <Editor
-                      value={content}
-                      onChange={setContent}
-                      wysiwyg={false}
-                      currentFile={currentFile}
-                      className={isEditorFullWidth ? 'full-width-editor' : ''}
-                      onReady={(view) => {
-                        editorViewRef.current = view
-                        updateUndoAvailability(view)
-                      }}
-                      onUpdate={updateUndoAvailability}
-                    />
+                <div className="document-tabs" role="tablist" aria-label="打开的文档">
+                  <div ref={tabViewportRef} className="document-tabs-viewport">
+                    <div className="document-tabs-list">
+                      {tabs.map((tab) => {
+                    const label = tab.filePath?.split(/[\\/]/).pop() || '未命名文档'
+
+                    return (
+                      <div
+                        key={tab.id}
+                        role="tab"
+                        ref={(element) => {
+                          if (element) tabElementRefs.current.set(tab.id, element)
+                          else tabElementRefs.current.delete(tab.id)
+                        }}
+                        tabIndex={tab.id === activeTabId ? 0 : -1}
+                        className={`document-tab ${tab.id === activeTabId ? 'active' : ''}`}
+                        aria-selected={tab.id === activeTabId}
+                        onClick={() => switchToTab(tab.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            switchToTab(tab.id)
+                          }
+                        }}
+                        title={tab.filePath ?? '未命名文档'}
+                      >
+                        <span className="document-tab-label">{label}</span>
+                        {tab.content !== tab.lastSyncedContent && <span className="document-tab-dirty">●</span>}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="document-tab-close"
+                          aria-label={`关闭 ${label}`}
+                          onClick={(event) => handleCloseTab(event, tab.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              handleCloseTab(event, tab.id)
+                            }
+                          }}
+                        >
+                          ×
+                        </span>
+                      </div>
+                    )
+                  })}
+                    </div>
                   </div>
-                )}
-                {viewMode === 'preview' && (
-                  <div ref={previewPanelRef} className="preview-panel">
-                    <Preview
-                      content={content}
-                      currentFile={currentFile}
-                      className={isEditorFullWidth ? 'full-width-preview' : ''}
-                    />
+                  <div className="document-tab-actions">
+                    <button
+                      type="button"
+                      className="document-tab-nav"
+                      onClick={() => switchTabByOffset(-1)}
+                      disabled={tabs.length < 2}
+                      aria-label="切换到上一个标签页"
+                      title="上一个标签页"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      className="document-tab-nav"
+                      onClick={() => switchTabByOffset(1)}
+                      disabled={tabs.length < 2}
+                      aria-label="切换到下一个标签页"
+                      title="下一个标签页"
+                    >
+                      ›
+                    </button>
+                    <button type="button" className="new-tab-button" onClick={handleNewTab} aria-label="新建标签页">
+                      +
+                    </button>
                   </div>
-                )}
+                </div>
+                <div className="document-view-area">
+                  <button
+                    type="button"
+                    className="view-mode-switch"
+                    onClick={handleToggleViewMode}
+                    aria-label={toggleViewLabel}
+                    title={`${toggleViewLabel} (${toggleViewShortcut})`}
+                  >
+                    <span>{viewMode === 'edit' ? '预览' : '编辑'}</span>
+                    <kbd>{toggleViewShortcut}</kbd>
+                  </button>
+                  {tabs.map((tab) => {
+                    const isActive = tab.id === activeTabId
+                    const tabViewMode = isActive ? viewMode : tab.viewMode
+
+                    return (
+                      <div key={tab.id} className={`tab-view-panel ${isActive ? 'active' : ''}`}>
+                        <div
+                          ref={isActive ? editorPanelRef : undefined}
+                          className={`editor-panel ${tabViewMode === 'edit' ? '' : 'is-hidden'}`}
+                        >
+                          <Editor
+                            value={tab.content}
+                            onChange={(nextContent) => {
+                              if (isActive) setActiveContent(nextContent)
+                            }}
+                            wysiwyg={false}
+                            currentFile={tab.filePath}
+                            testId={isActive && tabViewMode === 'edit' ? 'editor-container' : null}
+                            className={isEditorFullWidth ? 'full-width-editor' : ''}
+                            onReady={(view) => {
+                              editorViewsRef.current.set(tab.id, view)
+                              if (isActive) {
+                                editorViewRef.current = view
+                                updateUndoAvailability(view)
+                              }
+                            }}
+                            onUpdate={(view) => {
+                              if (isActive) {
+                                const nextContent = view.state.doc.toString()
+                                if (nextContent !== contentRef.current) {
+                                  setActiveContent(nextContent)
+                                }
+                                updateUndoAvailability(view)
+                              }
+                            }}
+                          />
+                        </div>
+                        {isActive && tabViewMode === 'preview' && (
+                          <div ref={previewPanelRef} className="preview-panel">
+                            <Preview
+                              content={content}
+                              currentFile={currentFile}
+                              className={isEditorFullWidth ? 'full-width-preview' : ''}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
               <aside
                 className="outline-sidebar"

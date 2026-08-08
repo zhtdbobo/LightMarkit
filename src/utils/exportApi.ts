@@ -27,3 +27,7 @@ export async function exportPdf(
 ): Promise<void> {
   return await invoke<void>('export_pdf', { filePath, htmlContent, title })
 }
+
+export async function openExportedFile(filePath: string): Promise<void> {
+  return await invoke<void>('open_exported_file', { filePath })
+}

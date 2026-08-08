@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { open, save } from '@tauri-apps/plugin-dialog'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import App from './App'
 import { scanFolder } from './utils/folderApi'
+import { openExportedFile } from './utils/exportApi'
 import { fileRead, fileWrite, getCurrentFile, markFrontendReady } from './utils/fileApi'
 import packageInfo from '../package.json'
 
@@ -20,6 +21,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
   openUrl: vi.fn(),
+  revealItemInDir: vi.fn(),
 }))
 
 vi.mock('@tauri-apps/plugin-process', () => ({
@@ -57,6 +59,7 @@ vi.mock('./utils/fileApi', () => ({
 vi.mock('./utils/exportApi', () => ({
   exportHtml: vi.fn(),
   exportPdf: vi.fn(),
+  openExportedFile: vi.fn(),
 }))
 
 vi.mock('./utils/folderApi', () => ({
@@ -84,6 +87,8 @@ describe('App', () => {
     vi.mocked(fileRead).mockResolvedValue('')
     vi.mocked(check).mockResolvedValue(null)
     vi.mocked(relaunch).mockResolvedValue(undefined)
+    vi.mocked(openExportedFile).mockResolvedValue(undefined)
+    vi.mocked(revealItemInDir).mockResolvedValue(undefined)
     vi.mocked(listen).mockResolvedValue(vi.fn())
     vi.mocked(getCurrentWindow).mockReturnValue(
       mockWindow as unknown as ReturnType<typeof getCurrentWindow>
@@ -113,6 +118,37 @@ describe('App', () => {
     render(<App />)
     const container = screen.getByTestId('editor-container')
     expect(container.textContent).not.toContain('Welcome to LightMarkit')
+  })
+
+  it('switches to another open tab when its tab is clicked', async () => {
+    vi.mocked(open).mockResolvedValueOnce('C:\\notes\\first.md').mockResolvedValueOnce('C:\\notes\\second.md')
+    vi.mocked(fileRead).mockImplementation(async (filePath) =>
+      filePath.includes('first') ? '# First document' : '# Second document'
+    )
+
+    render(<App />)
+
+    const openFile = async (expectedContent: string) => {
+      fireEvent.click(document.querySelector('.menu-trigger') as HTMLElement)
+      fireEvent.click(screen.getByRole('menuitem', { name: '打开文件' }))
+      await waitFor(() => expect(screen.getByTestId('editor-container')).toHaveTextContent(expectedContent))
+    }
+
+    await openFile('First document')
+    await openFile('Second document')
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs).toHaveLength(2)
+    expect(screen.getByTestId('editor-container')).toHaveTextContent('Second document')
+    expect(document.querySelectorAll('.tab-view-panel.active')).toHaveLength(1)
+    expect(document.querySelectorAll('.tab-view-panel:not(.active)')).toHaveLength(1)
+
+    fireEvent.click(tabs[0])
+
+    await waitFor(() => {
+      expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByTestId('editor-container')).toHaveTextContent('First document')
+    })
   })
 
   it('应该在启动时加载当前文件内容', async () => {
@@ -158,12 +194,12 @@ describe('App', () => {
     expect(screen.queryByTestId('editor-container')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '编辑' })).toHaveAttribute('aria-current', 'page')
     expect(
-      screen.getByRole('button', { name: '关闭设置' }).closest('.settings-detail')
+      screen.getByRole('heading', { name: '编辑' }).closest('.settings-detail')
     ).not.toBeNull()
     expect(screen.queryByRole('heading', { name: '关于 LightMarkit' })).not.toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /铺满/ })).toBeChecked()
     fireEvent.click(screen.getByRole('radio', { name: /默认阅读宽度/ }))
-    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(screen.getByTestId('editor-container')).not.toHaveClass('full-width-editor')
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
@@ -172,7 +208,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: /铺满/ }))
-    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(screen.getByTestId('editor-container')).toHaveClass('full-width-editor')
     fireEvent.keyDown(window, { key: '/', ctrlKey: true })
@@ -205,7 +241,7 @@ describe('App', () => {
       fontSize: 20,
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
 
     const contentArea = document.querySelector('.main-content') as HTMLElement
     expect(contentArea.style.getPropertyValue('--content-font-family')).toContain('Noto Serif SC')
@@ -393,7 +429,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(
-      screen.getByRole('button', { name: '关闭设置' }).closest('.settings-sidebar')
+      screen.getByRole('heading', { name: '设置' }).closest('.settings-sidebar')
     ).not.toBeNull()
   })
 
@@ -481,6 +517,50 @@ describe('App', () => {
     expect(screen.getByRole('menuitem', { name: '打开文件' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '打开文件夹' })).toBeVisible()
     expect(screen.queryByRole('menuitem', { name: '保存' })).not.toBeInTheDocument()
+  })
+
+  it('export completion provides actions for the exported file and its folder', async () => {
+    vi.mocked(save).mockResolvedValue('C:\\exports\\document.pdf')
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '导出' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出 PDF' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'PDF 导出完成' })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: '打开文件' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '打开所在文件夹' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: '打开文件' }))
+    expect(openExportedFile).toHaveBeenCalledWith('C:\\exports\\document.pdf')
+
+    vi.mocked(save).mockResolvedValue('C:\\exports\\document.pdf')
+    fireEvent.click(screen.getByRole('button', { name: '导出' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出 PDF' }))
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'PDF 导出完成' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '打开所在文件夹' }))
+    expect(revealItemInDir).toHaveBeenCalledWith('C:\\exports\\document.pdf')
+  })
+
+  it('closes the settings page when opening the file or export menu', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '文件' }))
+    expect(screen.queryByRole('heading', { name: '设置' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '打开文件' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出' }))
+    expect(screen.queryByRole('heading', { name: '设置' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '导出 HTML' })).toBeVisible()
   })
 
   it('应该展开导出菜单显示导出操作', () => {

@@ -13,7 +13,33 @@
       "allow": [
         {
           "url": "https://github.com/zhtdbobo/LightMarkit"
+        },
+        {
+          "url": "http://*"
+        },
+        {
+          "url": "https://*"
         }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$PUBLIC/**" }
+      ]
+    },
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$PUBLIC/**" }
       ]
     },
     "core:window:allow-minimize",

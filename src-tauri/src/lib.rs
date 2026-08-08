@@ -15,6 +15,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Emitter, Manager, State,
 };
+use tauri_plugin_opener::OpenerExt;
 
 struct FileState {
     current_file: Mutex<Option<PathBuf>>,
@@ -1104,6 +1105,13 @@ async fn export_html(file_path: String, html_content: String, title: String) -> 
 }
 
 #[tauri::command]
+fn open_exported_file(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
+    app.opener()
+        .open_path(file_path, None::<&str>)
+        .map_err(|error| format!("Failed to open exported file: {}", error))
+}
+
+#[tauri::command]
 async fn export_pdf(file_path: String, html_content: String, title: String) -> Result<(), String> {
     let output_path = PathBuf::from(&file_path);
     ensure_export_file_path(&output_path, &["pdf"])?;
@@ -1495,6 +1503,7 @@ pub fn run() {
             mark_frontend_ready,
             watch_current_file,
             scan_folder,
+            open_exported_file,
             export_html,
             export_pdf
         ])

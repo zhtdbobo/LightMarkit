@@ -37,7 +37,7 @@ body,
 
 .app-header {
   position: relative;
-  z-index: 20;
+  z-index: 100;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
@@ -80,6 +80,120 @@ body,
   font-weight: 500;
   white-space: nowrap;
   animation: fadeIn 0.3s ease-in;
+}
+
+.export-status {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.export-status.exporting {
+  color: #1a73e8;
+}
+
+.export-status.completed {
+  color: #188038;
+}
+
+.export-status.error {
+  color: #c5221f;
+}
+
+.export-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.export-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(520px, 100%);
+  padding: 24px;
+  color: #1f2937;
+  background: #ffffff;
+  border: 1px solid #d9e0e8;
+  border-radius: 12px;
+  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.2);
+}
+
+.export-dialog h2 {
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.export-dialog p {
+  color: #667085;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.export-dialog progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #1a73e8;
+  direction: ltr;
+}
+
+.export-dialog-progress {
+  align-self: flex-end;
+  margin-top: -8px;
+  color: #1a73e8;
+  font-size: 12px;
+}
+
+.export-dialog.completed h2 {
+  color: #188038;
+}
+
+.export-dialog.error h2 {
+  color: #c5221f;
+}
+
+.export-dialog-button {
+  min-width: 72px;
+  padding: 7px 14px;
+  color: #ffffff;
+  font: inherit;
+  background: #1a73e8;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.export-dialog-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.export-dialog-button.secondary {
+  color: #344054;
+  background: #f2f4f7;
+  border: 1px solid #d0d5dd;
+}
+
+.export-dialog-button:hover,
+.export-dialog-button:focus-visible {
+  background: #155fc0;
+  outline: none;
+}
+
+.export-dialog-button.secondary:hover,
+.export-dialog-button.secondary:focus-visible {
+  background: #e4e7ec;
 }
 
 .file-error-banner {
@@ -408,6 +522,153 @@ body,
 .editor-preview-surface {
   position: relative;
   display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.document-tabs {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex: 0 0 34px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 4px 8px 0;
+  overflow: hidden;
+  background: #f3f5f8;
+  border-bottom: 1px solid #dfe4eb;
+}
+
+.document-tabs-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.document-tabs-list {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  width: max-content;
+  min-width: 100%;
+  height: 30px;
+}
+
+.document-tab,
+.new-tab-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 8px;
+  color: #687386;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.document-tab {
+  gap: 7px;
+  max-width: 220px;
+}
+
+.document-tab-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 1px;
+  align-items: center;
+  margin-left: 8px;
+  padding-left: 6px;
+  border-left: 1px solid #dfe4eb;
+}
+
+.document-tab-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  color: #687386;
+  font: inherit;
+  font-size: 21px;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.document-tab-nav:hover:not(:disabled),
+.document-tab-nav:focus-visible:not(:disabled) {
+  color: #174ea6;
+  background: #e7edf5;
+  outline: none;
+}
+
+.document-tab-nav:disabled {
+  color: #b7bec8;
+  cursor: default;
+}
+
+.document-tab:hover,
+.document-tab:focus-visible,
+.document-tab.active {
+  color: #25324a;
+  background: #ffffff;
+  border-color: #dfe4eb;
+  outline: none;
+}
+
+.document-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-tab-dirty {
+  color: #1a73e8;
+  font-size: 10px;
+}
+
+.document-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #8a94a3;
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.document-tab-close:hover,
+.document-tab-close:focus-visible {
+  color: #25324a;
+  background: #e7edf5;
+  outline: none;
+}
+
+.new-tab-button {
+  width: 30px;
+  justify-content: center;
+  padding: 0;
+  font-size: 18px;
+}
+
+.document-view-area {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -432,6 +693,23 @@ body,
   border-radius: 7px;
   box-shadow: 0 2px 8px rgba(31, 41, 55, 0.08);
   cursor: pointer;
+}
+
+.tab-view-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  z-index: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tab-view-panel.active {
+  z-index: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .view-mode-switch:hover,
@@ -491,11 +769,18 @@ body,
 }
 
 .editor-panel {
+  position: absolute;
+  inset: 0;
   height: 100%;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
   background-color: #ffffff;
+}
+
+.editor-panel.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .preview-panel {
@@ -605,40 +890,6 @@ body,
   margin-top: 3px;
   color: #667085;
   font-size: 13px;
-}
-
-.settings-close-button {
-  position: absolute;
-  top: 22px;
-  right: 24px;
-  display: grid;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  color: #667085;
-  font: inherit;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  place-items: center;
-}
-
-.settings-page.platform-macos .settings-close-button {
-  position: static;
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
-  font-size: 18px;
-}
-
-.settings-close-button:hover,
-.settings-close-button:focus-visible {
-  color: #101828;
-  background: #e4e7ec;
-  outline: none;
 }
 
 .settings-card {
@@ -1355,13 +1606,10 @@ body,
     border-color: #4a4d4f;
   }
 
-  .settings-close-button,
   .settings-width-card {
     color: #d4d4d4;
   }
 
-  .settings-close-button:hover,
-  .settings-close-button:focus-visible,
   .settings-width-card:hover,
   .settings-width-card:focus-visible {
     color: #ffffff;

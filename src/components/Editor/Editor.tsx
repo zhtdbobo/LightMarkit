@@ -26,6 +26,7 @@ export interface EditorProps {
   wysiwyg?: boolean
   /** 当前文件路径，用于解析编辑区中的本地图片 */
   currentFile?: string | null
+  testId?: string | null
 }
 
 const Editor: React.FC<EditorProps> = ({
@@ -38,6 +39,7 @@ const Editor: React.FC<EditorProps> = ({
   onUpdate,
   wysiwyg = true,
   currentFile = null,
+  testId,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -115,7 +117,7 @@ const Editor: React.FC<EditorProps> = ({
   return (
     <div
       ref={editorRef}
-      data-testid="editor-container"
+      data-testid={testId === undefined ? 'editor-container' : testId ?? undefined}
       className={`editor-wrapper ${wysiwyg ? 'wysiwyg-editor' : 'source-editor'} ${className}`}
     />
   )

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import {
   hydrateLocalImages,
   renderMarkdownToHtml,
@@ -41,6 +42,20 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
     }
 
     root.innerHTML = renderedHtml
+
+    const handleExternalLinkClick = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+
+      const link = target.closest<HTMLAnchorElement>('a[data-external-link="true"]')
+      if (!link || !root.contains(link)) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      void openUrl(link.href)
+    }
+
+    root.addEventListener('click', handleExternalLinkClick)
 
     const documentKey = currentFile ?? '__untitled__'
     const collapsedBlockKeys = collapsedCodeBlocksRef.current.get(documentKey) ?? new Set<string>()
@@ -145,6 +160,7 @@ export function Preview({ content, currentFile = null, className = '' }: Preview
 
     return () => {
       feedbackTimers.forEach((timer) => window.clearTimeout(timer))
+      root.removeEventListener('click', handleExternalLinkClick)
     }
   }, [renderedHtml, currentFile])
 

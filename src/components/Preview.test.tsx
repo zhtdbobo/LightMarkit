@@ -90,6 +90,30 @@ describe('Preview', () => {
     expect(screen.getByRole('button', { name: '复制代码' })).toBeInTheDocument()
   })
 
+  it('renders block and inline mathematical formulas', () => {
+    const content = `Inline $p_\\theta(y_t)$
+
+$$
+L_{\\mathrm{SFT}} = - \\frac{\\sum_t m_t \\cdot \\log p_\\theta(y_t \\mid x, y_{<t})}{\\sum_t m_t}
+$$`
+
+    render(<Preview content={content} />)
+
+    const container = screen.getByTestId('preview-container')
+    expect(container.querySelector('math.math-inline')).toBeInTheDocument()
+    expect(container.querySelector('.math-block math.math-block')).toBeInTheDocument()
+    expect(container.querySelector('mfrac')).toBeInTheDocument()
+    expect(container.querySelectorAll('msub').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('does not parse formulas inside fenced code blocks', () => {
+    render(<Preview content={'```latex\n$$x^2$$\n```'} />)
+
+    const container = screen.getByTestId('preview-container')
+    expect(container.querySelector('math')).not.toBeInTheDocument()
+    expect(container.querySelector('pre code')).toHaveTextContent('$$x^2$$')
+  })
+
   it('should copy preview code blocks', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
