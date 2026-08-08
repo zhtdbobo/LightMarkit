@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-08-08
+
+### 新增
+
+- 新增多 Tab 文档支持，Tab 过多时通过右侧左右箭头切换，不再出现 Tab 区域的水平或垂直滚动条。
+- 切换 Tab 时恢复该文档之前的编辑/预览视图、内容位置和滚动位置；打开文件时不会被第一个 Tab 遮挡。
+- 新增多步骤撤销，`Ctrl+Z` 可以回退本次打开文件后的连续修改步骤。
+- 新增数学公式渲染，支持类似 `L_SFT = - Σ_t m_t · log p_theta(y_t | x, y_<t) / Σ_t m_t` 的公式内容。
+- HTTP/HTTPS 链接在预览中显示为蓝色可点击链接，并支持跳转到默认浏览器。
+- 新增导出过程的动态页面进度显示，以及导出成功或失败状态提示。
+- 导出完成后可直接打开导出的文件或其所在文件夹，并使用系统默认程序打开 PDF；支持任意有效本地路径。
+
+### 改进
+
+- 空白文档初次打开时不显示多余的右侧滚动条，只有内容超过可视区域后才显示。
+- 菜单层级高于 Tab 行，避免菜单被 Tab 覆盖；修复 Tab 点击无响应和界面错乱问题。
+- 设置页面通过顶部设置入口切换到“文件和导出”等页面时自动关闭设置视图，移除不必要的设置页右上角关闭按钮。
+- 预览切换回编辑时保持正常渲染，避免出现全屏白屏。
+
 ## [0.4.4] - 2026-08-05
 
 ### 发布
@@ -202,7 +221,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.1...v0.4.2

@@ -97,7 +97,28 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build installer, updater artifacts, and draft release
+      - name: Prepare release notes
+        id: release-notes
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $changelog = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $escapedVersion = [regex]::Escape($version)
+          $pattern = "(?ms)^## \[$escapedVersion\].*?(?=^## \[|\z)"
+          $match = [regex]::Match($changelog, $pattern)
+
+          if (-not $match.Success) {
+            throw "CHANGELOG.md does not contain a section for version $version."
+          }
+
+          $notes = $match.Value.Trim()
+          if ($notes -match 'See CHANGELOG\.md for release details\.') {
+            throw 'Release notes must contain the detailed changelog section.'
+          }
+
+          @('body<<EOF', $notes, 'EOF') | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: Build installer, updater artifacts, and release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -106,8 +127,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: '${{ github.ref_name }}'
-          releaseBody: 'See CHANGELOG.md for release details.'
-          releaseDraft: true
+          releaseBody: ${{ steps.release-notes.outputs.body }}
+          releaseDraft: false
           prerelease: false
           includeUpdaterJson: ${{ matrix.includeUpdaterJson }}
           updaterJsonPreferNsis: true
@@ -118,6 +139,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Add macOS updater targets and route downloads through GitHub mirror
         shell: pwsh
         env:
@@ -176,3 +200,23 @@ jobs:
           gh release upload $tag $manifestPath `
             --repo '${{ github.repository }}' `
             --clobber
+
+          $notesPath = Join-Path $manifestDirectory 'release-notes.md'
+          $changelog = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $version = $tag.TrimStart('v')
+          $escapedVersion = [regex]::Escape($version)
+          $pattern = "(?ms)^## \[$escapedVersion\].*?(?=^## \[|\z)"
+          $match = [regex]::Match($changelog, $pattern)
+          if (-not $match.Success) {
+            throw "CHANGELOG.md does not contain a section for version $version."
+          }
+          [System.IO.File]::WriteAllText(
+            $notesPath,
+            $match.Value.Trim() + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          gh release edit $tag `
+            --repo '${{ github.repository }}' `
+            --draft=false `
+            --notes-file $notesPath
