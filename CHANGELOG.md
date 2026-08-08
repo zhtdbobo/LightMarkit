@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.6-preview.6] - 2026-08-09
+
+### 修复
+
+- 修复 macOS Safari WebKit 导出因 `NSPrintJobFilePath` 标识符不存在导致的编译失败，改用 `NSPrintJobSavingURL`。
+
 ## [0.4.6-preview.5] - 2026-08-09
 
 ### 修复
@@ -247,7 +253,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.5...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.6...HEAD
+[0.4.6-preview.6]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.5...v0.4.6-preview.6
 [0.4.6-preview.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.4...v0.4.6-preview.5
 [0.4.6-preview.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.3...v0.4.6-preview.4
 [0.4.6-preview.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...v0.4.6-preview.3

@@ -142,7 +142,7 @@ bool lightmarkit_webkit_create_pdf(
 
                     NSMutableDictionary *settings = [[printInfo dictionary] mutableCopy];
                     [settings setObject:NSPrintSaveJob forKey:NSPrintJobDisposition];
-                    [settings setObject:pdfPath forKey:NSPrintJobFilePath];
+                    [settings setObject:[NSURL fileURLWithPath:pdfPath] forKey:NSPrintJobSavingURL];
                     NSPrintInfo *printInfoWithJob = [[NSPrintInfo alloc] initWithDictionary:settings];
 
                     if ([webView respondsToSelector:@selector(_printOperationWithPrintInfo:)]) {

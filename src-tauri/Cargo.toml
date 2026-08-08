@@ -1,6 +1,6 @@
 [package]
 name = "lightmarkit"
-version = "0.4.6-preview.5"
+version = "0.4.6-preview.6"
 description = "轻量级 Markdown 编辑器"
 authors = ["LightMarkit"]
 edition = "2021"
