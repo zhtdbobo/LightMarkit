@@ -69,14 +69,35 @@ bool lightmarkit_webkit_create_pdf(
             }
 
             NSURL *htmlURL = [NSURL fileURLWithPath:htmlPath];
+            NSError *readError = nil;
+            NSString *html = [NSString stringWithContentsOfFile:htmlPath
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:&readError];
+            if (!html) {
+                error_message = readError.localizedDescription ?: @"Safari WebKit failed to read the HTML document";
+                return;
+            }
+
             WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
             WKWebView *webView = [[WKWebView alloc]
                 initWithFrame:NSMakeRect(0, 0, 717, 1046)
                 configuration:configuration];
+            NSWindow *window = [[NSWindow alloc]
+                initWithContentRect:NSMakeRect(0, 0, 717, 1046)
+                styleMask:NSWindowStyleMaskBorderless
+                backing:NSBackingStoreBuffered
+                defer:NO];
+            window.opaque = NO;
+            window.hasShadow = NO;
+            window.releasedWhenClosed = NO;
+            window.contentView = webView;
+            window.ignoresMouseEvents = YES;
+            [window setFrameOrigin:NSMakePoint(-10000, -10000)];
+            [window orderFrontRegardless];
             LightMarkitNavigationDelegate *delegate = [LightMarkitNavigationDelegate new];
             webView.navigationDelegate = delegate;
 
-            [webView loadFileURL:htmlURL allowingReadAccessToURL:[htmlURL URLByDeletingLastPathComponent]];
+            [webView loadHTMLString:html baseURL:htmlURL];
 
             NSDate *navigationDeadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
             while (!delegate.finished && [navigationDeadline timeIntervalSinceNow] > 0) {
@@ -86,11 +107,13 @@ bool lightmarkit_webkit_create_pdf(
             }
 
             if (!delegate.finished) {
-                error_message = @"Safari WebKit timed out while loading the document";
+                error_message = @"Safari WebKit timed out while loading the document (hidden WebKit window did not finish navigation)";
+                [window orderOut:nil];
                 return;
             }
             if (delegate.error) {
                 error_message = delegate.error.localizedDescription ?: @"Safari WebKit failed to load the document";
+                [window orderOut:nil];
                 return;
             }
 
@@ -119,6 +142,7 @@ bool lightmarkit_webkit_create_pdf(
             }
 
             if (error_message) {
+                [window orderOut:nil];
                 return;
             }
 
@@ -147,6 +171,8 @@ bool lightmarkit_webkit_create_pdf(
             if (!pdfFinished && !error_message) {
                 error_message = @"Safari WebKit timed out while creating the PDF";
             }
+
+            [window orderOut:nil];
         }
     });
 

@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-## [0.4.6-preview.1] - 2026-08-08
+## [0.4.6-preview.2] - 2026-08-08
 
 ### 修复
 
-- macOS PDF 导出优先使用系统已有的 Chrome/Chromium/Edge；未安装时自动使用系统 WebKit（Safari 内核）生成 PDF。
+- macOS PDF 导出优先使用系统已有的 Chrome/Chromium/Edge；未安装时自动使用系统 WebKit（Safari 内核）生成 PDF，并修复 WebKit 页面加载超时问题。
 
 ## [0.4.5] - 2026-08-08
 
@@ -227,8 +227,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.1...HEAD
-[0.4.6-preview.1]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.5...v0.4.6-preview.1
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...HEAD
+[0.4.6-preview.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.1...v0.4.6-preview.2
 [0.4.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.2...v0.4.3
