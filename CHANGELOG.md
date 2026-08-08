@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.6-preview.5] - 2026-08-09
+
+### 修复
+
+- macOS Safari WebKit 导出改用 `NSPrintOperation` 打印路径，修复长文档只导出一页的问题，按 A4 纸张多页分页。
+
 ## [0.4.6-preview.4] - 2026-08-09
 
 ### 修复
@@ -241,7 +247,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.4...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.5...HEAD
+[0.4.6-preview.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.4...v0.4.6-preview.5
 [0.4.6-preview.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.3...v0.4.6-preview.4
 [0.4.6-preview.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...v0.4.6-preview.3
 [0.4.6-preview.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.1...v0.4.6-preview.2

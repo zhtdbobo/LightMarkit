@@ -6,6 +6,14 @@
 #include <string.h>
 #include <dispatch/dispatch.h>
 
+// WKWebView exposes no public API to obtain an NSPrintOperation; the underscored
+// selector below is a stable private method that returns a print operation which
+// paginates long content by paper size and honors @media print. Guarded at runtime
+// with a single-page createPDFWithConfiguration fallback when unavailable.
+@interface WKWebView (LightMarkitPrivatePrint)
+- (NSPrintOperation *)_printOperationWithPrintInfo:(NSPrintInfo *)printInfo;
+@end
+
 @interface LightMarkitNavigationDelegate : NSObject <WKNavigationDelegate>
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSError *error;
@@ -120,7 +128,38 @@ bool lightmarkit_webkit_create_pdf(
                     return;
                 }
 
-                void (^createPDF)(void) = ^{
+                void (^createPrint)(void) = ^{
+                    // The standard print path paginates long content by paper size and
+                    // honors @media print. createPDFWithConfiguration only captures the
+                    // visible bounds as a single page, so prefer NSPrintOperation here.
+                    NSPrintInfo *printInfo = [[NSPrintInfo alloc] init];
+                    [printInfo setPaperSize:NSMakeSize(8.27 * 72.0, 11.69 * 72.0)]; // A4
+                    [printInfo setOrientation:NSPaperOrientationPortrait];
+                    [printInfo setLeftMargin:0.4 * 72.0];
+                    [printInfo setRightMargin:0.4 * 72.0];
+                    [printInfo setTopMargin:0.4 * 72.0];
+                    [printInfo setBottomMargin:0.4 * 72.0];
+
+                    NSMutableDictionary *settings = [[printInfo dictionary] mutableCopy];
+                    [settings setObject:NSPrintSaveJob forKey:NSPrintJobDisposition];
+                    [settings setObject:pdfPath forKey:NSPrintJobFilePath];
+                    NSPrintInfo *printInfoWithJob = [[NSPrintInfo alloc] initWithDictionary:settings];
+
+                    if ([webView respondsToSelector:@selector(_printOperationWithPrintInfo:)]) {
+                        NSPrintOperation *operation = [webView _printOperationWithPrintInfo:printInfoWithJob];
+                        [operation setShowsPrintPanel:NO];
+                        [operation setShowsProgressPanel:NO];
+                        [operation runOperation];
+
+                        if ([[NSFileManager defaultManager] fileExistsAtPath:pdfPath]) {
+                            finish(YES, nil);
+                        } else {
+                            finish(NO, @"Safari WebKit print did not produce the PDF file");
+                        }
+                        return;
+                    }
+
+                    // Fallback: private print API unavailable, keep the single-page path.
                     WKPDFConfiguration *pdfConfiguration = [WKPDFConfiguration new];
                     pdfConfiguration.rect = webView.bounds;
                     [webView createPDFWithConfiguration:pdfConfiguration
@@ -149,7 +188,7 @@ bool lightmarkit_webkit_create_pdf(
 
                             BOOL imagesReady = [result respondsToSelector:@selector(boolValue)] && [result boolValue];
                             if (imagesReady || imageChecks++ >= 50) {
-                                createPDF();
+                                createPrint();
                                 return;
                             }
 
