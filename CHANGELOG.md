@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.4.6-preview.4] - 2026-08-09
+
+### 修复
+
+- 修复 macOS Safari WebKit 导出中 JavaScript 返回 Promise 导致的 `unsupported type` 错误。
+- 使用原生轮询等待图片资源完成后再生成 PDF。
+
 ## [0.4.6-preview.3] - 2026-08-08
 
 ### 修复
@@ -234,7 +241,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.3...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.4...HEAD
+[0.4.6-preview.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.3...v0.4.6-preview.4
 [0.4.6-preview.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...v0.4.6-preview.3
 [0.4.6-preview.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.1...v0.4.6-preview.2
 [0.4.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...v0.4.5

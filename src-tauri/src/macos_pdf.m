@@ -120,34 +120,44 @@ bool lightmarkit_webkit_create_pdf(
                     return;
                 }
 
-                // Let local images, fonts, and already-rendered Mermaid SVGs settle before printing.
-                [webView evaluateJavaScript:
-                    @"new Promise(resolve => { const images = Array.from(document.images); "
-                     "if (!images.length) { resolve(true); return; } "
-                     "let pending = images.length; const done = () => { if (--pending <= 0) resolve(true); }; "
-                     "images.forEach(image => image.complete ? done() : "
-                     "(image.addEventListener('load', done, { once: true }), "
-                     "image.addEventListener('error', done, { once: true }))); "
-                     "setTimeout(() => resolve(false), 5000); })"
-                    completionHandler:^(id result, NSError *scriptError) {
-                        if (scriptError) {
-                            finish(NO, scriptError.localizedDescription ?: @"Safari WebKit failed to prepare the document");
-                            return;
+                void (^createPDF)(void) = ^{
+                    WKPDFConfiguration *pdfConfiguration = [WKPDFConfiguration new];
+                    pdfConfiguration.rect = webView.bounds;
+                    [webView createPDFWithConfiguration:pdfConfiguration
+                                      completionHandler:^(NSData *pdfData, NSError *pdfError) {
+                        if (pdfError) {
+                            finish(NO, pdfError.localizedDescription ?: @"Safari WebKit failed to create the PDF");
+                        } else if (!pdfData || ![pdfData writeToFile:pdfPath atomically:YES]) {
+                            finish(NO, @"Safari WebKit failed to write the PDF file");
+                        } else {
+                            finish(YES, nil);
                         }
-
-                        WKPDFConfiguration *pdfConfiguration = [WKPDFConfiguration new];
-                        pdfConfiguration.rect = webView.bounds;
-                        [webView createPDFWithConfiguration:pdfConfiguration
-                                          completionHandler:^(NSData *pdfData, NSError *pdfError) {
-                            if (pdfError) {
-                                finish(NO, pdfError.localizedDescription ?: @"Safari WebKit failed to create the PDF");
-                            } else if (!pdfData || ![pdfData writeToFile:pdfPath atomically:YES]) {
-                                finish(NO, @"Safari WebKit failed to write the PDF file");
-                            } else {
-                                finish(YES, nil);
-                            }
-                        }];
                     }];
+                };
+
+                // evaluateJavaScript cannot return a Promise on macOS. Poll a serializable boolean instead.
+                __block NSUInteger imageChecks = 0;
+                __block void (^waitForImages)(void);
+                waitForImages = ^{
+                    [webView evaluateJavaScript:
+                        @"Array.from(document.images).every(image => image.complete)"
+                        completionHandler:^(id result, NSError *scriptError) {
+                            if (scriptError) {
+                                finish(NO, scriptError.localizedDescription ?: @"Safari WebKit failed to prepare the document");
+                                return;
+                            }
+
+                            BOOL imagesReady = [result respondsToSelector:@selector(boolValue)] && [result boolValue];
+                            if (imagesReady || imageChecks++ >= 50) {
+                                createPDF();
+                                return;
+                            }
+
+                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
+                                           dispatch_get_main_queue(), waitForImages);
+                        }];
+                };
+                waitForImages();
             };
 
             [webView loadHTMLString:html baseURL:htmlURL];
