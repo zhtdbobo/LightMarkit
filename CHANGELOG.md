@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.4.6-preview.3] - 2026-08-08
+
+### 修复
+
+- 修复 macOS Safari WebKit PDF 导出因主线程同步等待导致页面导航超时的问题。
+- 改为异步处理 WebKit 导航、资源加载和 PDF 生成回调，避免隐藏窗口阻塞主队列。
+
 ## [0.4.6-preview.2] - 2026-08-08
 
 ### 修复
@@ -227,7 +234,8 @@
 - 首次正式发布 LightMarkit。
 - 支持 Markdown 编辑、实时预览、文件管理、自动保存、Mermaid 图表以及 HTML、PDF 导出。
 
-[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...HEAD
+[Unreleased]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.3...HEAD
+[0.4.6-preview.3]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.2...v0.4.6-preview.3
 [0.4.6-preview.2]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.6-preview.1...v0.4.6-preview.2
 [0.4.5]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/zhtdbobo/LightMarkit/compare/v0.4.3...v0.4.4

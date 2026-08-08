@@ -9,12 +9,16 @@
 @interface LightMarkitNavigationDelegate : NSObject <WKNavigationDelegate>
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSError *error;
+@property(nonatomic, copy) void (^completion)(NSError *error);
 @end
 
 @implementation LightMarkitNavigationDelegate
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     self.finished = YES;
+    if (self.completion) {
+        self.completion(nil);
+    }
 }
 
 - (void)webView:(WKWebView *)webView
@@ -22,6 +26,9 @@
            withError:(NSError *)error {
     self.error = error;
     self.finished = YES;
+    if (self.completion) {
+        self.completion(error);
+    }
 }
 
 - (void)webView:(WKWebView *)webView
@@ -29,6 +36,9 @@
                        withError:(NSError *)error {
     self.error = error;
     self.finished = YES;
+    if (self.completion) {
+        self.completion(error);
+    }
 }
 
 @end
@@ -42,15 +52,6 @@ static void lightmarkit_set_error(char **error_out, NSString *message) {
     *error_out = utf8 ? strdup(utf8) : strdup("Unknown WebKit PDF export error");
 }
 
-static void lightmarkit_run_main_sync(void (^work)(void)) {
-    if ([NSThread isMainThread]) {
-        work();
-        return;
-    }
-
-    dispatch_sync(dispatch_get_main_queue(), work);
-}
-
 bool lightmarkit_webkit_create_pdf(
     const char *html_path,
     const char *pdf_path,
@@ -58,26 +59,30 @@ bool lightmarkit_webkit_create_pdf(
 ) {
     __block BOOL success = NO;
     __block NSString *error_message = nil;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
 
-    lightmarkit_run_main_sync(^{
+    // Keep the main queue free while WebKit delivers its delegate and completion callbacks.
+    dispatch_async(dispatch_get_main_queue(), ^{
         @autoreleasepool {
             NSString *htmlPath = html_path ? [NSString stringWithUTF8String:html_path] : nil;
             NSString *pdfPath = pdf_path ? [NSString stringWithUTF8String:pdf_path] : nil;
             if (!htmlPath || !pdfPath) {
                 error_message = @"Invalid HTML or PDF path";
+                dispatch_semaphore_signal(done);
                 return;
             }
 
-            NSURL *htmlURL = [NSURL fileURLWithPath:htmlPath];
             NSError *readError = nil;
             NSString *html = [NSString stringWithContentsOfFile:htmlPath
                                                         encoding:NSUTF8StringEncoding
                                                            error:&readError];
             if (!html) {
                 error_message = readError.localizedDescription ?: @"Safari WebKit failed to read the HTML document";
+                dispatch_semaphore_signal(done);
                 return;
             }
 
+            NSURL *htmlURL = [NSURL fileURLWithPath:htmlPath];
             WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
             WKWebView *webView = [[WKWebView alloc]
                 initWithFrame:NSMakeRect(0, 0, 717, 1046)
@@ -92,89 +97,81 @@ bool lightmarkit_webkit_create_pdf(
             window.releasedWhenClosed = NO;
             window.contentView = webView;
             window.ignoresMouseEvents = YES;
-            [window setFrameOrigin:NSMakePoint(-10000, -10000)];
+            window.alphaValue = 0.01;
             [window orderFrontRegardless];
+
             LightMarkitNavigationDelegate *delegate = [LightMarkitNavigationDelegate new];
             webView.navigationDelegate = delegate;
+            __block BOOL completed = NO;
+            void (^finish)(BOOL, NSString *) = ^(BOOL ok, NSString *message) {
+                if (completed) return;
+                completed = YES;
+                success = ok;
+                error_message = message;
+                [window orderOut:nil];
+                webView.navigationDelegate = nil;
+                delegate.completion = nil;
+                dispatch_semaphore_signal(done);
+            };
+
+            delegate.completion = ^(NSError *navigationError) {
+                if (navigationError) {
+                    finish(NO, navigationError.localizedDescription ?: @"Safari WebKit failed to load the document");
+                    return;
+                }
+
+                // Let local images, fonts, and already-rendered Mermaid SVGs settle before printing.
+                [webView evaluateJavaScript:
+                    @"new Promise(resolve => { const images = Array.from(document.images); "
+                     "if (!images.length) { resolve(true); return; } "
+                     "let pending = images.length; const done = () => { if (--pending <= 0) resolve(true); }; "
+                     "images.forEach(image => image.complete ? done() : "
+                     "(image.addEventListener('load', done, { once: true }), "
+                     "image.addEventListener('error', done, { once: true }))); "
+                     "setTimeout(() => resolve(false), 5000); })"
+                    completionHandler:^(id result, NSError *scriptError) {
+                        if (scriptError) {
+                            finish(NO, scriptError.localizedDescription ?: @"Safari WebKit failed to prepare the document");
+                            return;
+                        }
+
+                        WKPDFConfiguration *pdfConfiguration = [WKPDFConfiguration new];
+                        pdfConfiguration.rect = webView.bounds;
+                        [webView createPDFWithConfiguration:pdfConfiguration
+                                          completionHandler:^(NSData *pdfData, NSError *pdfError) {
+                            if (pdfError) {
+                                finish(NO, pdfError.localizedDescription ?: @"Safari WebKit failed to create the PDF");
+                            } else if (!pdfData || ![pdfData writeToFile:pdfPath atomically:YES]) {
+                                finish(NO, @"Safari WebKit failed to write the PDF file");
+                            } else {
+                                finish(YES, nil);
+                            }
+                        }];
+                    }];
+            };
 
             [webView loadHTMLString:html baseURL:htmlURL];
-
-            NSDate *navigationDeadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
-            while (!delegate.finished && [navigationDeadline timeIntervalSinceNow] > 0) {
-                [[NSRunLoop currentRunLoop]
-                    runMode:NSDefaultRunLoopMode
-                    beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-            }
-
-            if (!delegate.finished) {
-                error_message = @"Safari WebKit timed out while loading the document (hidden WebKit window did not finish navigation)";
-                [window orderOut:nil];
-                return;
-            }
-            if (delegate.error) {
-                error_message = delegate.error.localizedDescription ?: @"Safari WebKit failed to load the document";
-                [window orderOut:nil];
-                return;
-            }
-
-            // Let local images, fonts, and already-rendered Mermaid SVGs settle before printing.
-            __block BOOL scriptFinished = NO;
-            [webView evaluateJavaScript:
-                @"new Promise(resolve => { const images = Array.from(document.images); "
-                 "if (!images.length) { resolve(true); return; } "
-                 "let pending = images.length; const done = () => { if (--pending <= 0) resolve(true); }; "
-                 "images.forEach(image => image.complete ? done() : "
-                 "(image.addEventListener('load', done, { once: true }), "
-                 "image.addEventListener('error', done, { once: true }))); "
-                 "setTimeout(() => resolve(false), 5000); })"
-                completionHandler:^(id result, NSError *error) {
-                    if (error && !error_message) {
-                        error_message = error.localizedDescription;
-                    }
-                    scriptFinished = YES;
-                }];
-
-            NSDate *scriptDeadline = [NSDate dateWithTimeIntervalSinceNow:6.0];
-            while (!scriptFinished && [scriptDeadline timeIntervalSinceNow] > 0) {
-                [[NSRunLoop currentRunLoop]
-                    runMode:NSDefaultRunLoopMode
-                    beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-            }
-
-            if (error_message) {
-                [window orderOut:nil];
-                return;
-            }
-
-            WKPDFConfiguration *pdfConfiguration = [WKPDFConfiguration new];
-            pdfConfiguration.rect = webView.bounds;
-            __block BOOL pdfFinished = NO;
-            [webView createPDFWithConfiguration:pdfConfiguration
-                              completionHandler:^(NSData *pdfData, NSError *error) {
-                if (error) {
-                    error_message = error.localizedDescription ?: @"Safari WebKit failed to create the PDF";
-                } else if (!pdfData || ![pdfData writeToFile:pdfPath atomically:YES]) {
-                    error_message = @"Safari WebKit failed to write the PDF file";
-                } else {
-                    success = YES;
-                }
-                pdfFinished = YES;
-            }];
-
-            NSDate *pdfDeadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
-            while (!pdfFinished && [pdfDeadline timeIntervalSinceNow] > 0) {
-                [[NSRunLoop currentRunLoop]
-                    runMode:NSDefaultRunLoopMode
-                    beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-            }
-
-            if (!pdfFinished && !error_message) {
-                error_message = @"Safari WebKit timed out while creating the PDF";
-            }
-
-            [window orderOut:nil];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 45 * NSEC_PER_SEC),
+                           dispatch_get_main_queue(), ^{
+                finish(NO, @"Safari WebKit timed out while loading the document (hidden WebKit window did not finish navigation)");
+            });
         }
     });
+
+    if ([NSThread isMainThread]) {
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:50.0];
+        while (dispatch_semaphore_wait(done, DISPATCH_TIME_NOW) != 0 &&
+               [deadline timeIntervalSinceNow] > 0) {
+            [[NSRunLoop currentRunLoop]
+                runMode:NSRunLoopCommonModes
+                beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        }
+        if ([deadline timeIntervalSinceNow] <= 0 && !success && !error_message) {
+            error_message = @"Safari WebKit timed out while exporting the PDF";
+        }
+    } else if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_SEC)) != 0) {
+        error_message = @"Safari WebKit timed out while exporting the PDF";
+    }
 
     if (!success) {
         lightmarkit_set_error(error_out, error_message ?: @"Safari WebKit PDF export failed");

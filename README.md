@@ -1,10 +1,10 @@
 # LightMarkit
 
-<!-- release-version: 0.4.6-preview.2 -->
+<!-- release-version: 0.4.6-preview.3 -->
 
 LightMarkit 是一款基于 Tauri 2、React 和 TypeScript 构建的轻量级桌面 Markdown 编辑器，支持 Windows 和 macOS。
 
-当前发布版本：[v0.4.6-preview.2](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.6-preview.2)
+当前发布版本：[v0.4.6-preview.3](https://github.com/zhtdbobo/LightMarkit/releases/tag/v0.4.6-preview.3)
 
 ## 功能
 
